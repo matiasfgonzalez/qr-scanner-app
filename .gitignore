@@ -39,3 +39,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Build artifacts
+*.apk
+*.aab
+*.ipa
+
+# Service account keys (NEVER commit)
+google-service-account.json
+*.keystore
