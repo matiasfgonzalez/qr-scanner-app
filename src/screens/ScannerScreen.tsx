@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,12 @@ import {
   Platform,
   Animated,
   Dimensions,
+  Alert,
 } from "react-native";
 import {
   CameraView,
   useCameraPermissions,
   BarcodeScanningResult,
-  FlashMode,
 } from "expo-camera";
 import * as Location from "expo-location";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -28,6 +28,7 @@ const Colors = {
   secondary: { 400: "#34d399", 500: "#10b981" },
   neutral: { 400: "#94a3b8", 900: "#0f172a", 950: "#020617" },
   danger: { 500: "#ef4444" },
+  warning: "#f59e0b",
   text: { inverse: "#ffffff" },
 };
 
@@ -47,12 +48,69 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
   );
   const [scanned, setScanned] = useState(false);
   const [type, setType] = useState<"front" | "back">("back");
-  const [flash, setFlash] = useState<FlashMode>("off");
+
+  // ═══════════════════════════════════════════════════════════════
+  // 🔦 CONTROL DE FLASH/TORCH - Modo antorcha para iluminación continua
+  // En expo-camera v17+, usamos enableTorch para modo antorcha constante
+  // ═══════════════════════════════════════════════════════════════
+  const [torchEnabled, setTorchEnabled] = useState<boolean>(false);
+  const [flashError, setFlashError] = useState<string | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
 
   // Animaciones
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scanLineAnim = useRef(new Animated.Value(0)).current;
+
+  /**
+   * 🔦 Toggle del flash/torch con manejo de errores robusto
+   * Usa el modo "torch" para iluminación constante (mejor para escaneo QR)
+   */
+  const handleToggleFlash = useCallback(() => {
+    try {
+      // Validar que estamos usando la cámara trasera (el flash frontal no existe)
+      if (type === "front") {
+        setFlashError("El flash solo funciona con la cámara trasera");
+        Alert.alert(
+          "Flash no disponible",
+          "El flash solo está disponible cuando usas la cámara trasera.",
+          [{ text: "Entendido", onPress: () => setFlashError(null) }]
+        );
+        return;
+      }
+
+      // Toggle del estado del torch
+      setTorchEnabled((prev) => {
+        const newState = !prev;
+        console.log(`🔦 Flash ${newState ? "ENCENDIDO" : "APAGADO"}`);
+        setFlashError(null); // Limpiar errores previos
+        return newState;
+      });
+    } catch (error) {
+      console.error("Error al cambiar estado del flash:", error);
+      setFlashError("Error al controlar el flash");
+      Alert.alert(
+        "Error de Flash",
+        "No se pudo controlar el flash. Verifica que tu dispositivo tenga flash disponible.",
+        [{ text: "OK" }]
+      );
+    }
+  }, [type]);
+
+  /**
+   * 🔄 Cambio de cámara con desactivación automática del flash
+   */
+  const handleToggleCamera = useCallback(() => {
+    setType((prev) => {
+      const newType = prev === "back" ? "front" : "back";
+      // Apagar el flash si cambiamos a cámara frontal
+      if (newType === "front" && torchEnabled) {
+        setTorchEnabled(false);
+        console.log("🔦 Flash desactivado automáticamente (cámara frontal)");
+      }
+      return newType;
+    });
+  }, [torchEnabled]);
 
   // Animación de pulso del frame
   useEffect(() => {
@@ -217,7 +275,7 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
         <CameraView
           style={styles.camera}
           facing={type}
-          flash={flash}
+          enableTorch={torchEnabled}
           onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
           barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         >
@@ -232,9 +290,23 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
                     : "📱 Apunta al código QR"}
                 </Text>
               </View>
-              {locationPermission && (
-                <View style={styles.locationBadge}>
-                  <Text style={styles.locationBadgeText}>📍 GPS activo</Text>
+              {/* Badges de estado */}
+              <View style={styles.statusBadges}>
+                {locationPermission && (
+                  <View style={styles.locationBadge}>
+                    <Text style={styles.locationBadgeText}>📍 GPS</Text>
+                  </View>
+                )}
+                {torchEnabled && (
+                  <View style={styles.flashBadge}>
+                    <Text style={styles.flashBadgeText}>💡 Flash ON</Text>
+                  </View>
+                )}
+              </View>
+              {/* Mensaje de error del flash */}
+              {flashError && (
+                <View style={styles.errorBadge}>
+                  <Text style={styles.errorBadgeText}>⚠️ {flashError}</Text>
                 </View>
               )}
             </View>
@@ -264,31 +336,39 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
             <View style={styles.bottomActions}>
               <View style={styles.actionRow}>
                 <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() =>
-                    setType((t) => (t === "back" ? "front" : "back"))
-                  }
+                  style={[
+                    styles.actionButton,
+                    type === "front" && styles.actionButtonActive,
+                  ]}
+                  onPress={handleToggleCamera}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.actionIcon}>🔄</Text>
-                  <Text style={styles.actionLabel}>Cámara</Text>
+                  <Text style={styles.actionLabel}>
+                    {type === "back" ? "Frontal" : "Trasera"}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={[
                     styles.actionButton,
-                    flash === "on" && styles.actionButtonActive,
+                    torchEnabled && styles.actionButtonFlashActive,
+                    type === "front" && styles.actionButtonDisabled,
                   ]}
-                  onPress={() =>
-                    setFlash((prev) => (prev === "off" ? "on" : "off"))
-                  }
+                  onPress={handleToggleFlash}
                   activeOpacity={0.7}
+                  disabled={false}
                 >
                   <Text style={styles.actionIcon}>
-                    {flash === "off" ? "🔦" : "💡"}
+                    {torchEnabled ? "💡" : "🔦"}
                   </Text>
-                  <Text style={styles.actionLabel}>
-                    {flash === "off" ? "Flash" : "Apagar"}
+                  <Text
+                    style={[
+                      styles.actionLabel,
+                      type === "front" && styles.actionLabelDisabled,
+                    ]}
+                  >
+                    {torchEnabled ? "Apagar" : "Flash"}
                   </Text>
                 </TouchableOpacity>
 
@@ -373,6 +453,38 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
   },
   locationBadgeText: {
+    color: Colors.text.inverse,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  statusBadges: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  flashBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.warning + "CC",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 9999,
+    gap: 4,
+  },
+  flashBadgeText: {
+    color: Colors.neutral[900],
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  errorBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.danger[500] + "CC",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 9999,
+    gap: 4,
+  },
+  errorBadgeText: {
     color: Colors.text.inverse,
     fontSize: 11,
     fontWeight: "600",
@@ -466,6 +578,12 @@ const styles = StyleSheet.create({
   actionButtonActive: {
     backgroundColor: Colors.secondary[500] + "40",
   },
+  actionButtonFlashActive: {
+    backgroundColor: Colors.warning + "40",
+  },
+  actionButtonDisabled: {
+    opacity: 0.4,
+  },
   actionIcon: {
     fontSize: 24,
     marginBottom: 4,
@@ -474,6 +592,9 @@ const styles = StyleSheet.create({
     color: Colors.text.inverse,
     fontSize: 11,
     fontWeight: "500",
+  },
+  actionLabelDisabled: {
+    color: Colors.neutral[400],
   },
   rescanButton: {
     backgroundColor: Colors.primary[600],
