@@ -2,16 +2,27 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import "react-native-get-random-values";
 import uuid from "react-native-uuid";
 
+export type LocationInfo = {
+  latitude: number;
+  longitude: number;
+  address?: string;
+};
+
 export type ScanItem = {
   id: string;
   data: string;
   type: string;
   date: string;
+  location?: LocationInfo;
 };
 
 const STORAGE_KEY = "scan_history";
 
-export async function saveScan(data: string, type: string) {
+export async function saveScan(
+  data: string,
+  type: string,
+  location?: LocationInfo
+) {
   try {
     const json = await AsyncStorage.getItem(STORAGE_KEY);
     const current: ScanItem[] = json ? JSON.parse(json) : [];
@@ -20,6 +31,7 @@ export async function saveScan(data: string, type: string) {
       data,
       type,
       date: new Date().toISOString(),
+      location,
     };
     current.unshift(newItem);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current));

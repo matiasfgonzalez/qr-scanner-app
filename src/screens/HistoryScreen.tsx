@@ -33,6 +33,7 @@ export default function HistoryScreen({ navigation }: Readonly<Props>) {
           data: item.data,
           type: item.type,
           fromScanner: false,
+          location: item.location,
         })
       }
     >
@@ -42,6 +43,15 @@ export default function HistoryScreen({ navigation }: Readonly<Props>) {
       <Text style={styles.meta}>
         {item.type} • {new Date(item.date).toLocaleString()}
       </Text>
+      {item.location && (
+        <Text style={styles.locationText}>
+          📍{" "}
+          {item.location.address ||
+            `${item.location.latitude.toFixed(
+              4
+            )}, ${item.location.longitude.toFixed(4)}`}
+        </Text>
+      )}
     </TouchableOpacity>
   );
 
@@ -65,6 +75,13 @@ export default function HistoryScreen({ navigation }: Readonly<Props>) {
           onPress={() => navigation.replace("Scanner")}
         >
           <Text style={styles.btnText}>Escanear de nuevo</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: "#2563eb" }]}
+          onPress={() => navigation.navigate("Map", {})}
+        >
+          <Text style={styles.btnText}>🗺️ Ver mapa de escaneos</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -99,6 +116,11 @@ const styles = StyleSheet.create({
   },
   data: { fontWeight: "600" },
   meta: { fontSize: 12, color: "#6b7280", marginTop: 4 },
+  locationText: {
+    fontSize: 11,
+    color: "#2563eb",
+    marginTop: 4,
+  },
   empty: { textAlign: "center", marginTop: 40, color: "#6b7280" },
   clearBtn: {
     backgroundColor: "#ef4444",

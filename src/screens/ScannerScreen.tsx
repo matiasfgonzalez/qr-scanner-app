@@ -12,14 +12,19 @@ import {
   BarcodeScanningResult,
   FlashMode,
 } from "expo-camera";
+import * as Location from "expo-location";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../App";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LocationInfo } from "../utils/storage";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Scanner">;
 
 export default function ScannerScreen({ navigation }: Readonly<Props>) {
   const [permission, requestPermission] = useCameraPermissions();
+  const [locationPermission, setLocationPermission] = useState<boolean | null>(
+    null
+  );
   const [scanned, setScanned] = useState(false);
   const [type, setType] = useState<"front" | "back">("back");
 
@@ -30,15 +35,69 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
     if (!permission) {
       requestPermission();
     }
+    // Solicitar permisos de ubicación
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === "granted");
+    })();
   }, []);
 
-  const handleBarCodeScanned = (result: BarcodeScanningResult) => {
+  const getCurrentLocation = async (): Promise<LocationInfo | undefined> => {
+    try {
+      if (!locationPermission) {
+        console.log("No hay permiso de ubicación");
+        return undefined;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      // Intentar obtener la dirección
+      let address: string | undefined;
+      try {
+        const [geocode] = await Location.reverseGeocodeAsync({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+        if (geocode) {
+          address = [
+            geocode.street,
+            geocode.streetNumber,
+            geocode.city,
+            geocode.region,
+            geocode.country,
+          ]
+            .filter(Boolean)
+            .join(", ");
+        }
+      } catch (geocodeError) {
+        console.log("Error obteniendo dirección:", geocodeError);
+      }
+
+      return {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        address,
+      };
+    } catch (error) {
+      console.error("Error obteniendo ubicación:", error);
+      return undefined;
+    }
+  };
+
+  const handleBarCodeScanned = async (result: BarcodeScanningResult) => {
     if (scanned) return; // evita múltiples lecturas rápidas
     setScanned(true);
+
+    // Obtener ubicación actual
+    const location = await getCurrentLocation();
+
     navigation.navigate("Result", {
       data: result.data,
       type: result.type || "unknown",
-      fromScanner: true, // 👈 nuevo
+      fromScanner: true,
+      location, // 👈 pasar ubicación
     });
   };
 

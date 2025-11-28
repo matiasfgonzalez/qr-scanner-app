@@ -17,16 +17,21 @@ import { SafeAreaView } from "react-native-safe-area-context";
 type Props = NativeStackScreenProps<RootStackParamList, "Result">;
 
 export default function ResultScreen({ route, navigation }: Readonly<Props>) {
-  const { data } = route.params;
+  const { data, location } = route.params;
 
   useEffect(() => {
     const save = async () => {
       // solo guardar si viene del scanner
       if (route.params.fromScanner) {
-        console.log("Intentando guardar scan:", data, route.params.type);
+        console.log(
+          "Intentando guardar scan:",
+          data,
+          route.params.type,
+          location
+        );
         if (data && route.params.type) {
-          await saveScan(data, route.params.type);
-          console.log("Scan guardado correctamente");
+          await saveScan(data, route.params.type, location);
+          console.log("Scan guardado correctamente con ubicación");
         }
       }
     };
@@ -97,6 +102,21 @@ export default function ResultScreen({ route, navigation }: Readonly<Props>) {
             </>
           )}
 
+          {location && (
+            <>
+              <Text style={styles.label}>📍 Ubicación del escaneo:</Text>
+              <View style={styles.card}>
+                <Text selectable>
+                  Lat: {location.latitude.toFixed(6)}, Lng:{" "}
+                  {location.longitude.toFixed(6)}
+                </Text>
+                {location.address && (
+                  <Text style={styles.addressText}>{location.address}</Text>
+                )}
+              </View>
+            </>
+          )}
+
           <View style={styles.actions}>
             {isUrl && (
               <TouchableOpacity
@@ -112,6 +132,21 @@ export default function ResultScreen({ route, navigation }: Readonly<Props>) {
             >
               <Text style={styles.btnText}>Copiar</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: "#2563eb" }]}
+              onPress={() => navigation.navigate("Map", { filterQrData: data })}
+            >
+              <Text style={styles.btnText}>🗺️ Ver ruta de este QR</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: "#8b5cf6" }]}
+              onPress={() => navigation.navigate("Map", {})}
+            >
+              <Text style={styles.btnText}>🗺️ Ver todos los escaneos</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: "#10b981" }]}
               onPress={() => navigation.replace("Scanner")}
@@ -161,4 +196,9 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: "#2563eb" },
   secondary: { backgroundColor: "#6b7280" },
   btnText: { color: "#fff", fontWeight: "600" },
+  addressText: {
+    color: "#6b7280",
+    marginTop: 4,
+    fontSize: 13,
+  },
 });
