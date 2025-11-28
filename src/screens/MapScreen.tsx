@@ -1,13 +1,70 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Dimensions,
+  Platform,
+} from "react-native";
 import MapView, { Marker, Callout } from "react-native-maps";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../App";
 import { getScans, ScanItem } from "../utils/storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+// ═══════════════════════════════════════════════════════════════
+// 🎨 SISTEMA DE COLORES PREMIUM
+// ═══════════════════════════════════════════════════════════════
+const Colors = {
+  primary: {
+    50: "#eff6ff",
+    100: "#dbeafe",
+    500: "#3b82f6",
+    600: "#2563eb",
+    700: "#1d4ed8",
+  },
+  secondary: { 50: "#ecfdf5", 500: "#10b981", 600: "#059669" },
+  accent: { 50: "#f5f3ff", 500: "#8b5cf6", 600: "#7c3aed" },
+  neutral: {
+    50: "#f8fafc",
+    100: "#f1f5f9",
+    200: "#e2e8f0",
+    400: "#94a3b8",
+    600: "#475569",
+    800: "#1e293b",
+    900: "#0f172a",
+  },
+  text: {
+    primary: "#0f172a",
+    secondary: "#475569",
+    muted: "#94a3b8",
+    inverse: "#ffffff",
+  },
+  background: { primary: "#f8fafc", card: "#ffffff" },
+  border: { light: "#e2e8f0" },
+};
+
+// Colores vibrantes para los marcadores
+const MARKER_COLORS = [
+  "#ef4444", // rojo
+  "#3b82f6", // azul
+  "#10b981", // verde
+  "#f59e0b", // amarillo
+  "#8b5cf6", // violeta
+  "#ec4899", // rosa
+  "#06b6d4", // cyan
+  "#f97316", // naranja
+];
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+
 type Props = NativeStackScreenProps<RootStackParamList, "Map">;
 
+/**
+ * 🗺️ MapScreen - Visualización de escaneos en mapa
+ * Diseño premium con leyenda interactiva
+ */
 export default function MapScreen({ navigation, route }: Readonly<Props>) {
   const [scans, setScans] = useState<ScanItem[]>([]);
   const { filterQrData } = route.params || {};
@@ -15,10 +72,8 @@ export default function MapScreen({ navigation, route }: Readonly<Props>) {
   useEffect(() => {
     const load = async () => {
       const data = await getScans();
-      // Filtrar solo los escaneos que tienen ubicación
       let scansWithLocation = data.filter((scan) => scan.location);
 
-      // Si hay un filtro de QR específico, mostrar solo ese
       if (filterQrData) {
         scansWithLocation = scansWithLocation.filter(
           (scan) => scan.data === filterQrData
@@ -57,7 +112,7 @@ export default function MapScreen({ navigation, route }: Readonly<Props>) {
     };
   };
 
-  // Agrupar escaneos por código QR para tracking
+  // Agrupar escaneos por código QR
   const groupedByQr = scans.reduce((acc, scan) => {
     if (!acc[scan.data]) {
       acc[scan.data] = [];
@@ -66,125 +121,166 @@ export default function MapScreen({ navigation, route }: Readonly<Props>) {
     return acc;
   }, {} as Record<string, ScanItem[]>);
 
-  // Generar colores únicos para cada QR
+  // Asignar colores a cada QR
   const qrColors: Record<string, string> = {};
-  const colors = [
-    "#e63946",
-    "#2a9d8f",
-    "#e9c46a",
-    "#264653",
-    "#f4a261",
-    "#a8dadc",
-    "#457b9d",
-    "#1d3557",
-    "#f77f00",
-    "#d62828",
-  ];
   Object.keys(groupedByQr).forEach((qr, index) => {
-    qrColors[qr] = colors[index % colors.length];
+    qrColors[qr] = MARKER_COLORS[index % MARKER_COLORS.length];
   });
 
+  // Estado vacío
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIcon}>
+        <Text style={styles.emptyIconText}>🗺️</Text>
+      </View>
+      <Text style={styles.emptyTitle}>Sin ubicaciones</Text>
+      <Text style={styles.emptyDescription}>
+        {filterQrData
+          ? "Este código QR no tiene escaneos con ubicación."
+          : "Aún no hay escaneos con ubicación registrada."}
+        {"\n\n"}
+        Escanea códigos QR para ver su ubicación en el mapa.
+      </Text>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#f8fafc" }}>
+    <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
+        {/* Header Premium */}
         <View style={styles.header}>
-          <Text style={styles.title}>
-            {filterQrData ? "Ruta del QR" : "Mapa de Escaneos"}
-          </Text>
-          <Text style={styles.subtitle}>
-            {scans.length} escaneo{scans.length !== 1 ? "s" : ""} con ubicación
-          </Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>
+              {filterQrData ? "📍 Ruta del QR" : "🌍 Mapa de Escaneos"}
+            </Text>
+            <View style={styles.headerStats}>
+              <View style={styles.statBadge}>
+                <Text style={styles.statNumber}>{scans.length}</Text>
+                <Text style={styles.statLabel}>escaneos</Text>
+              </View>
+              {!filterQrData && (
+                <View style={[styles.statBadge, styles.statBadgeSecondary]}>
+                  <Text style={styles.statNumberSecondary}>
+                    {Object.keys(groupedByQr).length}
+                  </Text>
+                  <Text style={styles.statLabelSecondary}>QR únicos</Text>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
 
+        {/* Mapa o estado vacío */}
         {scans.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              No hay escaneos con ubicación registrada.
-            </Text>
-            <Text style={styles.emptySubtext}>
-              Escanea códigos QR para ver su ubicación en el mapa.
-            </Text>
-          </View>
+          renderEmptyState()
         ) : (
-          <MapView
-            style={styles.map}
-            initialRegion={getInitialRegion()}
-            showsUserLocation={true}
-            showsMyLocationButton={true}
-          >
-            {scans.map((scan, index) => (
-              <Marker
-                key={scan.id}
-                coordinate={{
-                  latitude: scan.location!.latitude,
-                  longitude: scan.location!.longitude,
-                }}
-                pinColor={qrColors[scan.data]}
-              >
-                <Callout>
-                  <View style={styles.callout}>
-                    <Text style={styles.calloutTitle} numberOfLines={1}>
-                      QR: {scan.data.substring(0, 30)}
-                      {scan.data.length > 30 ? "..." : ""}
-                    </Text>
-                    <Text style={styles.calloutDate}>
-                      {new Date(scan.date).toLocaleString()}
-                    </Text>
-                    {scan.location?.address && (
-                      <Text style={styles.calloutAddress} numberOfLines={2}>
-                        📍 {scan.location.address}
+          <View style={styles.mapContainer}>
+            <MapView
+              style={styles.map}
+              initialRegion={getInitialRegion()}
+              showsUserLocation={true}
+              showsMyLocationButton={true}
+            >
+              {scans.map((scan, index) => (
+                <Marker
+                  key={scan.id}
+                  coordinate={{
+                    latitude: scan.location!.latitude,
+                    longitude: scan.location!.longitude,
+                  }}
+                  pinColor={qrColors[scan.data]}
+                >
+                  <Callout>
+                    <View style={styles.callout}>
+                      <View style={styles.calloutHeader}>
+                        <View
+                          style={[
+                            styles.calloutDot,
+                            { backgroundColor: qrColors[scan.data] },
+                          ]}
+                        />
+                        <Text style={styles.calloutIndex}>
+                          #{scans.length - index}
+                        </Text>
+                      </View>
+                      <Text style={styles.calloutTitle} numberOfLines={2}>
+                        {scan.data.substring(0, 50)}
+                        {scan.data.length > 50 ? "..." : ""}
                       </Text>
-                    )}
-                    <Text style={styles.calloutOrder}>
-                      Escaneo #{scans.length - index} de este QR
-                    </Text>
-                  </View>
-                </Callout>
-              </Marker>
-            ))}
-          </MapView>
-        )}
-
-        {/* Leyenda de colores */}
-        {!filterQrData && Object.keys(groupedByQr).length > 1 && (
-          <View style={styles.legend}>
-            <Text style={styles.legendTitle}>Códigos QR:</Text>
-            {Object.entries(groupedByQr)
-              .slice(0, 5)
-              .map(([qr, items]) => (
-                <View key={qr} style={styles.legendItem}>
-                  <View
-                    style={[
-                      styles.legendColor,
-                      { backgroundColor: qrColors[qr] },
-                    ]}
-                  />
-                  <Text style={styles.legendText} numberOfLines={1}>
-                    {qr.substring(0, 20)}... ({items.length} escaneos)
-                  </Text>
-                </View>
+                      <Text style={styles.calloutDate}>
+                        🕐 {new Date(scan.date).toLocaleString()}
+                      </Text>
+                      {scan.location?.address && (
+                        <Text style={styles.calloutAddress} numberOfLines={2}>
+                          📍 {scan.location.address}
+                        </Text>
+                      )}
+                    </View>
+                  </Callout>
+                </Marker>
               ))}
-            {Object.keys(groupedByQr).length > 5 && (
-              <Text style={styles.legendMore}>
-                +{Object.keys(groupedByQr).length - 5} más
-              </Text>
+            </MapView>
+
+            {/* Leyenda flotante */}
+            {!filterQrData && Object.keys(groupedByQr).length > 1 && (
+              <View style={styles.legend}>
+                <Text style={styles.legendTitle}>Códigos QR</Text>
+                {Object.entries(groupedByQr)
+                  .slice(0, 4)
+                  .map(([qr, items]) => (
+                    <View key={qr} style={styles.legendItem}>
+                      <View
+                        style={[
+                          styles.legendDot,
+                          { backgroundColor: qrColors[qr] },
+                        ]}
+                      />
+                      <Text style={styles.legendText} numberOfLines={1}>
+                        {qr.substring(0, 18)}...
+                      </Text>
+                      <Text style={styles.legendCount}>({items.length})</Text>
+                    </View>
+                  ))}
+                {Object.keys(groupedByQr).length > 4 && (
+                  <Text style={styles.legendMore}>
+                    +{Object.keys(groupedByQr).length - 4} más
+                  </Text>
+                )}
+              </View>
             )}
           </View>
         )}
 
-        <View style={styles.buttonContainer}>
+        {/* Barra de acciones inferior */}
+        <View style={styles.bottomBar}>
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: "#10b981" }]}
+            style={styles.buttonPrimary}
             onPress={() => navigation.replace("Scanner")}
+            activeOpacity={0.8}
           >
+            <Text style={styles.buttonIcon}>📷</Text>
             <Text style={styles.buttonText}>Escanear</Text>
           </TouchableOpacity>
+
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: "#6b7280" }]}
+            style={styles.buttonSecondary}
             onPress={() => navigation.navigate("History")}
+            activeOpacity={0.8}
           >
+            <Text style={styles.buttonIcon}>📋</Text>
             <Text style={styles.buttonText}>Historial</Text>
           </TouchableOpacity>
+
+          {filterQrData && (
+            <TouchableOpacity
+              style={styles.buttonAccent}
+              onPress={() => navigation.setParams({ filterQrData: undefined })}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.buttonIcon}>🌍</Text>
+              <Text style={styles.buttonText}>Todos</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -192,123 +288,270 @@ export default function MapScreen({ navigation, route }: Readonly<Props>) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f8fafc" },
-  header: {
-    padding: 16,
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+  safeArea: {
+    flex: 1,
+    backgroundColor: Colors.background.primary,
   },
-  title: {
+  container: {
+    flex: 1,
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // HEADER
+  // ═══════════════════════════════════════════════════════════════
+  header: {
+    backgroundColor: Colors.background.card,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.light,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerTitle: {
     fontSize: 20,
     fontWeight: "700",
-    textAlign: "center",
+    color: Colors.text.primary,
+    letterSpacing: -0.3,
   },
-  subtitle: {
+  headerStats: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  statBadge: {
+    backgroundColor: Colors.primary[50],
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  statBadgeSecondary: {
+    backgroundColor: Colors.secondary[50],
+  },
+  statNumber: {
     fontSize: 14,
-    color: "#6b7280",
-    textAlign: "center",
-    marginTop: 4,
+    fontWeight: "700",
+    color: Colors.primary[600],
+  },
+  statNumberSecondary: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.secondary[600],
+  },
+  statLabel: {
+    fontSize: 11,
+    color: Colors.primary[600],
+  },
+  statLabelSecondary: {
+    fontSize: 11,
+    color: Colors.secondary[600],
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // MAPA
+  // ═══════════════════════════════════════════════════════════════
+  mapContainer: {
+    flex: 1,
+    position: "relative",
   },
   map: {
     flex: 1,
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#374151",
-    textAlign: "center",
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: "#6b7280",
-    textAlign: "center",
-    marginTop: 8,
-  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // CALLOUT
+  // ═══════════════════════════════════════════════════════════════
   callout: {
-    padding: 8,
-    maxWidth: 200,
+    padding: 10,
+    minWidth: 180,
+    maxWidth: 220,
+  },
+  calloutHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  calloutDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 6,
+  },
+  calloutIndex: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.text.muted,
   },
   calloutTitle: {
+    fontSize: 13,
     fontWeight: "600",
-    marginBottom: 4,
+    color: Colors.text.primary,
+    marginBottom: 6,
+    lineHeight: 18,
   },
   calloutDate: {
-    fontSize: 12,
-    color: "#6b7280",
+    fontSize: 11,
+    color: Colors.text.muted,
+    marginBottom: 4,
   },
   calloutAddress: {
     fontSize: 11,
-    color: "#374151",
-    marginTop: 4,
+    color: Colors.primary[600],
+    lineHeight: 16,
   },
-  calloutOrder: {
-    fontSize: 11,
-    color: "#2563eb",
-    marginTop: 4,
-    fontWeight: "500",
-  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // LEYENDA
+  // ═══════════════════════════════════════════════════════════════
   legend: {
     position: "absolute",
-    bottom: 80,
+    bottom: 90,
     left: 16,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: Colors.background.card,
+    padding: 14,
+    borderRadius: 12,
     maxWidth: 200,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowColor: Colors.neutral[900],
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: Colors.border.light,
   },
   legendTitle: {
-    fontWeight: "700",
-    marginBottom: 8,
     fontSize: 12,
+    fontWeight: "700",
+    color: Colors.text.primary,
+    marginBottom: 10,
+    letterSpacing: 0.3,
   },
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     marginRight: 8,
   },
   legendText: {
-    fontSize: 11,
     flex: 1,
+    fontSize: 11,
+    color: Colors.text.secondary,
+  },
+  legendCount: {
+    fontSize: 10,
+    color: Colors.text.muted,
+    fontWeight: "600",
   },
   legendMore: {
     fontSize: 11,
-    color: "#6b7280",
+    color: Colors.text.muted,
     marginTop: 4,
+    fontStyle: "italic",
   },
-  buttonContainer: {
+
+  // ═══════════════════════════════════════════════════════════════
+  // ESTADO VACÍO
+  // ═══════════════════════════════════════════════════════════════
+  emptyState: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
+  emptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.neutral[100],
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  emptyIconText: {
+    fontSize: 36,
+  },
+  emptyTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: Colors.text.primary,
+    marginBottom: 8,
+  },
+  emptyDescription: {
+    fontSize: 15,
+    color: Colors.text.muted,
+    textAlign: "center",
+    lineHeight: 24,
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // BARRA INFERIOR
+  // ═══════════════════════════════════════════════════════════════
+  bottomBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     flexDirection: "row",
     padding: 16,
     gap: 12,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.background.card,
     borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
+    borderTopColor: Colors.border.light,
+    shadowColor: Colors.neutral[900],
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  button: {
+  buttonPrimary: {
     flex: 1,
-    padding: 12,
-    borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.secondary[500],
+    paddingVertical: 14,
+    borderRadius: 12,
+    shadowColor: Colors.secondary[500],
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  buttonSecondary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.neutral[600],
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  buttonAccent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.accent[500],
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  buttonIcon: {
+    fontSize: 16,
+    marginRight: 6,
   },
   buttonText: {
-    color: "#fff",
+    color: Colors.text.inverse,
+    fontSize: 14,
     fontWeight: "600",
   },
 });
