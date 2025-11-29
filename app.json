@@ -41,9 +41,8 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "ff1bb635-e946-4c30-8954-fc9485bc0648"
       }
-    },
-    "owner": "your-expo-username"
+    }
   }
 }
