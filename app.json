@@ -4,11 +4,11 @@
     "slug": "qr-scanner-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon-app.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/icon-app.png",
       "resizeMode": "contain",
       "backgroundColor": "#0f172a"
     },
@@ -23,9 +23,9 @@
     },
     "android": {
       "package": "com.tuempresa.qrscannerpro",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon-app.png",
         "backgroundColor": "#0f172a"
       },
       "edgeToEdgeEnabled": true,
