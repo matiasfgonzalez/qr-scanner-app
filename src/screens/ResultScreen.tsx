@@ -14,6 +14,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { saveScan } from "../utils/storage";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
 // ═══════════════════════════════════════════════════════════════
 // 🎨 SISTEMA DE COLORES PREMIUM
@@ -158,6 +159,23 @@ export default function ResultScreen({ route, navigation }: Readonly<Props>) {
                 <Text style={styles.codeText} selectable>
                   {JSON.stringify(parsed, null, 2)}
                 </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Vista previa de la web si es URL */}
+          {isUrl && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>🌐 VISTA PREVIA DEL SITIO</Text>
+              <View style={styles.webviewContainer}>
+                <WebView
+                  source={{ uri: data }}
+                  style={styles.webview}
+                  startInLoadingState={true}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  scalesPageToFit={true}
+                />
               </View>
             </View>
           )}
@@ -374,6 +392,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary[600],
     fontWeight: "600",
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // WEBVIEW
+  // ═══════════════════════════════════════════════════════════════
+  webviewContainer: {
+    backgroundColor: Colors.background.card,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.border.light,
+    shadowColor: Colors.neutral[900],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    height: 400,
+  },
+  webview: {
+    flex: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════
