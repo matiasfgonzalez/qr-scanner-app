@@ -48,3 +48,5 @@ yarn-error.*
 # Service account keys (NEVER commit)
 google-service-account.json
 *.keystore
+
+.idea
