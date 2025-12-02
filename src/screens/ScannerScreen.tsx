@@ -163,6 +163,27 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
     })();
   }, []);
 
+  /**
+   * ✅ Validación de dominios ATER permitidos
+   * Solo permite QRs que contengan URLs de portal.ater.gob.ar, portalt.ater.gob.ar o portald.ater.gob.ar
+   */
+  const isValidAterQR = (data: string): boolean => {
+    // Verificar si es una URL
+    const urlRegex = /^(https?:\/\/)/i;
+    if (!urlRegex.test(data)) {
+      return false;
+    }
+
+    // Verificar si contiene alguno de los dominios permitidos
+    const allowedDomains = [
+      "portal.ater.gob.ar",
+      "portalt.ater.gob.ar",
+      "portald.ater.gob.ar",
+    ];
+
+    return allowedDomains.some((domain) => data.toLowerCase().includes(domain));
+  };
+
   const getCurrentLocation = async (): Promise<LocationInfo | undefined> => {
     try {
       if (!locationPermission) {
@@ -211,13 +232,16 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
     setScanned(true);
     setIsLoading(true);
 
-    const location = await getCurrentLocation();
+    // Validar si el QR es de un dominio ATER permitido
+    const isValid = isValidAterQR(result.data);
+    const location = isValid ? await getCurrentLocation() : undefined;
 
     navigation.navigate("Result", {
       data: result.data,
       type: result.type || "unknown",
       fromScanner: true,
       location,
+      isValidAterQR: isValid,
     });
 
     setIsLoading(false);

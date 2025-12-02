@@ -15,6 +15,7 @@ export type RootStackParamList = {
     type?: string;
     fromScanner?: boolean;
     location?: LocationInfo;
+    isValidAterQR?: boolean;
   };
   History: undefined;
   Map: { filterQrData?: string } | undefined;
