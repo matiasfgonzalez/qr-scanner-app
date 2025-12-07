@@ -389,6 +389,15 @@ export default function ScannerScreen({ navigation }: Readonly<Props>) {
                   <Text style={styles.actionIcon}>🗺️</Text>
                   <Text style={styles.actionLabel}>Mapa</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => navigation.navigate("DeviceInfo")}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.actionIcon}>📱</Text>
+                  <Text style={styles.actionLabel}>Info</Text>
+                </TouchableOpacity>
               </View>
 
               {scanned && (
