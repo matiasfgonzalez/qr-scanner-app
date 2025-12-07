@@ -14,6 +14,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Linking from "expo-linking";
 import { saveScan } from "../utils/storage";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
 // ═══════════════════════════════════════════════════════════════
 // 🎨 SISTEMA DE COLORES PREMIUM
@@ -22,11 +23,12 @@ const Colors = {
   primary: {
     50: "#eff6ff",
     100: "#dbeafe",
+    200: "#bfdbfe",
     500: "#3b82f6",
     600: "#2563eb",
     700: "#1d4ed8",
   },
-  secondary: { 50: "#ecfdf5", 500: "#10b981", 600: "#059669" },
+  secondary: { 50: "#ecfdf5", 400: "#34d399", 500: "#10b981", 600: "#059669" },
   accent: { 50: "#f5f3ff", 500: "#8b5cf6", 600: "#7c3aed" },
   danger: { 50: "#fef2f2", 500: "#ef4444", 600: "#dc2626" },
   neutral: {
@@ -59,19 +61,34 @@ type Props = NativeStackScreenProps<RootStackParamList, "Result">;
  */
 export default function ResultScreen({ route, navigation }: Readonly<Props>) {
   const { data, location } = route.params;
+  const isValidAterQR = route.params.isValidAterQR ?? true;
 
   useEffect(() => {
     const save = async () => {
-      if (route.params.fromScanner) {
+      // Solo guardar si viene del scanner, tiene datos válidos Y es un QR ATER válido
+      if (route.params.fromScanner && isValidAterQR) {
         console.log("Guardando scan:", data, route.params.type, location);
         if (data && route.params.type) {
           await saveScan(data, route.params.type, location);
           console.log("Scan guardado correctamente con ubicación");
         }
+      } else if (route.params.fromScanner && !isValidAterQR) {
+        console.log("QR no válido - No se guardará:", data);
       }
     };
     save();
   }, []);
+
+  // Mostrar alerta de QR inválido
+  useEffect(() => {
+    if (route.params.fromScanner && !isValidAterQR) {
+      Alert.alert(
+        "⚠️ Código QR no válido",
+        "El código escaneado no pertenece a los dominios permitidos de ATER.\n\nDominios válidos:\n• portal.ater.gob.ar\n• portalt.ater.gob.ar\n• portald.ater.gob.ar\n\nPuedes ver el contenido pero no se guardará en el historial.",
+        [{ text: "Entendido" }]
+      );
+    }
+  }, [isValidAterQR]);
 
   const parsed = useMemo(() => {
     try {
@@ -121,13 +138,26 @@ export default function ResultScreen({ route, navigation }: Readonly<Props>) {
       <View style={styles.container}>
         {/* Header Premium */}
         <View style={styles.header}>
-          <View style={styles.headerIcon}>
-            <Text style={styles.headerIconText}>✓</Text>
+          <View
+            style={isValidAterQR ? styles.headerIcon : styles.headerIconWarning}
+          >
+            <Text style={styles.headerIconText}>
+              {isValidAterQR ? "✓" : "⚠️"}
+            </Text>
           </View>
-          <Text style={styles.headerTitle}>Escaneo exitoso</Text>
+          <Text style={styles.headerTitle}>
+            {isValidAterQR ? "Escaneo exitoso" : "QR no válido"}
+          </Text>
           <Text style={styles.headerSubtitle}>
             {new Date().toLocaleString()}
           </Text>
+          {!isValidAterQR && (
+            <View style={styles.warningBanner}>
+              <Text style={styles.warningText}>
+                No se guardará en el historial
+              </Text>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -158,6 +188,23 @@ export default function ResultScreen({ route, navigation }: Readonly<Props>) {
                 <Text style={styles.codeText} selectable>
                   {JSON.stringify(parsed, null, 2)}
                 </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Vista previa de la web si es URL */}
+          {isUrl && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>🌐 VISTA PREVIA DEL SITIO</Text>
+              <View style={styles.webviewContainer}>
+                <WebView
+                  source={{ uri: data }}
+                  style={styles.webview}
+                  startInLoadingState={true}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  scalesPageToFit={true}
+                />
               </View>
             </View>
           )}
@@ -293,9 +340,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  headerIconWarning: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.danger[50],
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   headerIconText: {
     fontSize: 28,
     color: Colors.secondary[500],
+  },
+  warningBanner: {
+    marginTop: 12,
+    backgroundColor: Colors.danger[50],
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.danger[500],
+  },
+  warningText: {
+    fontSize: 12,
+    color: Colors.danger[600],
+    fontWeight: "600",
+    textAlign: "center",
   },
   headerTitle: {
     fontSize: 22,
@@ -374,6 +445,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.primary[600],
     fontWeight: "600",
+  },
+
+  // ═══════════════════════════════════════════════════════════════
+  // WEBVIEW
+  // ═══════════════════════════════════════════════════════════════
+  webviewContainer: {
+    backgroundColor: Colors.background.card,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.border.light,
+    shadowColor: Colors.neutral[900],
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    height: 400,
+  },
+  webview: {
+    flex: 1,
   },
 
   // ═══════════════════════════════════════════════════════════════
