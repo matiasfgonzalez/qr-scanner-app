@@ -33,7 +33,7 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "CAMERA",
+        "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
@@ -68,7 +68,6 @@
         "expo-image-picker",
         {
           "photosPermission": "Permite elegir una imagen de tu galería para leer el código QR que contiene.",
-          "cameraPermission": false,
           "microphonePermission": false
         }
       ],
