@@ -1,713 +1,321 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Platform,
-  Animated,
-  Dimensions,
-  Alert,
-} from "react-native";
-import {
-  CameraView,
-  useCameraPermissions,
-  BarcodeScanningResult,
-} from "expo-camera";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, Linking, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { BarcodeScanningResult, BarcodeType, CameraView, scanFromURLAsync, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../../App";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { LocationInfo } from "../utils/storage";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
-// ═══════════════════════════════════════════════════════════════
-// 🎨 SISTEMA DE COLORES PREMIUM
-// ═══════════════════════════════════════════════════════════════
-const Colors = {
-  primary: { 500: "#3b82f6", 600: "#2563eb" },
-  secondary: { 400: "#34d399", 500: "#10b981" },
-  neutral: { 400: "#94a3b8", 900: "#0f172a", 950: "#020617" },
-  danger: { 500: "#ef4444" },
-  warning: "#f59e0b",
-  text: { inverse: "#ffffff" },
-};
+import { TabScreenProps } from "../navigation/types";
+import { useApp } from "../state/AppContext";
+import { ScannerFrame, ScanState } from "../components/motion";
+import { Button, IconButton, PressableScale } from "../components/ui";
+import { useToast } from "../components/Toast";
+import { recordScan } from "../lib/scan";
+import { haptic } from "../lib/haptics";
+import { requestLocationPermission } from "../lib/location";
+import { font, radius, space } from "../theme";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const FRAME_SIZE = Math.min(SCREEN_WIDTH * 0.7, 280);
+const ALL_TYPES: BarcodeType[] = ["qr", "datamatrix", "aztec", "pdf417", "ean13", "ean8", "upc_a", "upc_e", "code128", "code39", "code93", "itf14", "codabar"];
+const QR_ONLY: BarcodeType[] = ["qr"];
 
-type Props = NativeStackScreenProps<RootStackParamList, "Scanner">;
+/** Ignora relecturas del mismo código durante este lapso */
+const DUPLICATE_WINDOW_MS = 3000;
+/** Tiempo para que se vea el check antes de navegar */
+const SUCCESS_HOLD_MS = 520;
 
-/**
- * 📷 ScannerScreen - Pantalla principal de escaneo QR
- * Diseño premium con animaciones sutiles y UX optimizada
- */
-export default function ScannerScreen({ navigation }: Readonly<Props>) {
+export default function ScannerScreen({ navigation }: TabScreenProps<"Scan">) {
+  const { settings, colors } = useApp();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const focused = useIsFocused();
+
   const [permission, requestPermission] = useCameraPermissions();
-  const [locationPermission, setLocationPermission] = useState<boolean | null>(
-    null
-  );
-  const [scanned, setScanned] = useState(false);
-  const [type, setType] = useState<"front" | "back">("back");
+  const [appActive, setAppActive] = useState(AppState.currentState === "active");
+  const [facing, setFacing] = useState<"back" | "front">("back");
+  const [torch, setTorch] = useState(false);
+  const [state, setState] = useState<ScanState>("idle");
+  const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [gpsOn, setGpsOn] = useState(true);
 
-  // ═══════════════════════════════════════════════════════════════
-  // 🔦 CONTROL DE FLASH/TORCH - Modo antorcha para iluminación continua
-  // En expo-camera v17+, usamos enableTorch para modo antorcha constante
-  // ═══════════════════════════════════════════════════════════════
-  const [torchEnabled, setTorchEnabled] = useState<boolean>(false);
-  const [flashError, setFlashError] = useState<string | null>(null);
+  const locked = useRef(false);
+  const last = useRef<{ data: string; at: number } | null>(null);
+  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [isLoading, setIsLoading] = useState(false);
+  const frameSize = Math.min(width * 0.68, 300);
 
-  // Animaciones
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const scanLineAnim = useRef(new Animated.Value(0)).current;
-
-  /**
-   * 🔦 Toggle del flash/torch con manejo de errores robusto
-   * Usa el modo "torch" para iluminación constante (mejor para escaneo QR)
-   */
-  const handleToggleFlash = useCallback(() => {
-    try {
-      // Validar que estamos usando la cámara trasera (el flash frontal no existe)
-      if (type === "front") {
-        setFlashError("El flash solo funciona con la cámara trasera");
-        Alert.alert(
-          "Flash no disponible",
-          "El flash solo está disponible cuando usas la cámara trasera.",
-          [{ text: "Entendido", onPress: () => setFlashError(null) }]
-        );
-        return;
-      }
-
-      // Toggle del estado del torch
-      setTorchEnabled((prev) => {
-        const newState = !prev;
-        console.log(`🔦 Flash ${newState ? "ENCENDIDO" : "APAGADO"}`);
-        setFlashError(null); // Limpiar errores previos
-        return newState;
-      });
-    } catch (error) {
-      console.error("Error al cambiar estado del flash:", error);
-      setFlashError("Error al controlar el flash");
-      Alert.alert(
-        "Error de Flash",
-        "No se pudo controlar el flash. Verifica que tu dispositivo tenga flash disponible.",
-        [{ text: "OK" }]
-      );
-    }
-  }, [type]);
-
-  /**
-   * 🔄 Cambio de cámara con desactivación automática del flash
-   */
-  const handleToggleCamera = useCallback(() => {
-    setType((prev) => {
-      const newType = prev === "back" ? "front" : "back";
-      // Apagar el flash si cambiamos a cámara frontal
-      if (newType === "front" && torchEnabled) {
-        setTorchEnabled(false);
-        console.log("🔦 Flash desactivado automáticamente (cámara frontal)");
-      }
-      return newType;
-    });
-  }, [torchEnabled]);
-
-  // Animación de pulso del frame
+  // ── Ciclo de vida ──────────────────────────────────────────
   useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.02,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
+    const sub = AppState.addEventListener("change", (s) => setAppActive(s === "active"));
+    return () => sub.remove();
   }, []);
 
-  // Animación de línea de escaneo
   useEffect(() => {
-    const scanLine = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scanLineAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scanLineAnim, {
-          toValue: 0,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    scanLine.start();
-    return () => scanLine.stop();
-  }, []);
-
-  // Pedir permisos en el primer render
-  useEffect(() => {
-    if (!permission) {
+    if (permission && !permission.granted && permission.canAskAgain && permission.status === "undetermined") {
       requestPermission();
     }
+  }, [permission, requestPermission]);
+
+  useEffect(() => {
+    if (!settings.saveLocation) {
+      setHasLocation(false);
+      return;
+    }
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermission(status === "granted");
+      const current = await Location.getForegroundPermissionsAsync();
+      if (current.status === "undetermined") setHasLocation(await requestLocationPermission());
+      else setHasLocation(current.status === "granted");
     })();
-  }, []);
+  }, [settings.saveLocation]);
 
-  /**
-   * ✅ Validación de dominios ATER permitidos
-   * Solo permite QRs que contengan URLs de portal.ater.gob.ar, portalt.ater.gob.ar o portald.ater.gob.ar
-   */
-  const isValidAterQR = (data: string): boolean => {
-    // Verificar si es una URL
-    const urlRegex = /^(https?:\/\/)/i;
-    if (!urlRegex.test(data)) {
-      return false;
-    }
-
-    // Verificar si contiene alguno de los dominios permitidos
-    const allowedDomains = [
-      "portal.ater.gob.ar",
-      "portalt.ater.gob.ar",
-      "portald.ater.gob.ar",
-    ];
-
-    return allowedDomains.some((domain) => data.toLowerCase().includes(domain));
-  };
-
-  const getCurrentLocation = async (): Promise<LocationInfo | undefined> => {
-    try {
-      if (!locationPermission) {
-        console.log("No hay permiso de ubicación");
-        return undefined;
-      }
-
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      let address: string | undefined;
-      try {
-        const [geocode] = await Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
-        if (geocode) {
-          address = [
-            geocode.street,
-            geocode.streetNumber,
-            geocode.city,
-            geocode.region,
-            geocode.country,
-          ]
-            .filter(Boolean)
-            .join(", ");
-        }
-      } catch (geocodeError) {
-        console.log("Error obteniendo dirección:", geocodeError);
-      }
-
-      return {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        address,
+  // Al volver a la pestaña: reiniciar el visor
+  useFocusEffect(
+    useCallback(() => {
+      locked.current = false;
+      setState("idle");
+      // Si el mismo código sigue frente a la cámara al volver, no relanzarlo enseguida
+      if (last.current) last.current.at = Date.now();
+      Location.hasServicesEnabledAsync().then(setGpsOn).catch(() => undefined);
+      return () => {
+        if (navTimer.current) clearTimeout(navTimer.current);
+        setTorch(false);
       };
-    } catch (error) {
-      console.error("Error obteniendo ubicación:", error);
-      return undefined;
+    }, [])
+  );
+
+  // ── Manejo de lecturas ─────────────────────────────────────
+  const handleDetected = useCallback(
+    async (data: string, format: string | undefined, source: "camera" | "image") => {
+      if (locked.current) return;
+      const now = Date.now();
+      if (source === "camera" && last.current && last.current.data === data && now - last.current.at < DUPLICATE_WINDOW_MS) return;
+      locked.current = true;
+      last.current = { data, at: now };
+
+      setState("success");
+      haptic.success();
+
+      let params: { scanId?: string; data?: string; format?: string; justScanned: boolean };
+      try {
+        const item = await recordScan({ data, format, source, withLocation: settings.saveLocation && !!hasLocation });
+        params = { scanId: item.id, justScanned: true };
+      } catch (err) {
+        // Si falla el guardado, igual mostramos el resultado (sin historial)
+        console.warn("No se pudo guardar el escaneo:", err);
+        params = { data, format, justScanned: true };
+      }
+      navTimer.current = setTimeout(() => navigation.navigate("Result", params), SUCCESS_HOLD_MS);
+    },
+    [navigation, settings.saveLocation, hasLocation]
+  );
+
+  const onBarcodeScanned = useCallback(
+    (result: BarcodeScanningResult) => {
+      // En Android `data` es el valor "para mostrar" de ML Kit (p. ej. un Wi‑Fi
+      // llega como "Red clave"); `raw` conserva el contenido original.
+      const value = result?.raw || result?.data;
+      if (!value) return;
+      handleDetected(value, result.type, "camera");
+    },
+    [handleDetected]
+  );
+
+  const scanFromGallery = useCallback(async () => {
+    if (locked.current) return;
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
+    if (picked.canceled || !picked.assets?.[0]) return;
+    try {
+      const results = await scanFromURLAsync(picked.assets[0].uri, settings.allFormats ? ALL_TYPES : QR_ONLY);
+      const first = results.find((r) => r.raw || r.data);
+      if (first) {
+        handleDetected(first.raw || first.data, first.type, "image");
+        return;
+      }
+    } catch (err) {
+      console.warn("Error leyendo imagen:", err);
     }
+    setState("error");
+    haptic.error();
+    toast.show({ message: "No se encontró ningún código en la imagen", icon: "alert-circle" });
+    setTimeout(() => setState("idle"), 900);
+  }, [handleDetected, settings.allFormats, toast]);
+
+  const toggleTorch = () => {
+    if (facing === "front") {
+      toast.show({ message: "La linterna sólo funciona con la cámara trasera", icon: "flash-off" });
+      return;
+    }
+    haptic.selection();
+    setTorch((t) => !t);
   };
 
-  const handleBarCodeScanned = async (result: BarcodeScanningResult) => {
-    if (scanned || isLoading) return;
-    setScanned(true);
-    setIsLoading(true);
-
-    // Validar si el QR es de un dominio ATER permitido
-    const isValid = isValidAterQR(result.data);
-    const location = isValid ? await getCurrentLocation() : undefined;
-
-    navigation.navigate("Result", {
-      data: result.data,
-      type: result.type || "unknown",
-      fromScanner: true,
-      location,
-      isValidAterQR: isValid,
-    });
-
-    setIsLoading(false);
+  const flipCamera = () => {
+    haptic.selection();
+    setTorch(false);
+    setFacing((f) => (f === "back" ? "front" : "back"));
   };
 
-  // Pantalla de carga de permisos
+  // ── Permisos ───────────────────────────────────────────────
   if (!permission) {
-    return (
-      <SafeAreaView style={styles.permissionContainer}>
-        <View style={styles.permissionContent}>
-          <View style={styles.iconContainer}>
-            <Text style={styles.iconEmoji}>📷</Text>
-          </View>
-          <Text style={styles.permissionTitle}>Acceso a cámara</Text>
-          <Text style={styles.permissionText}>
-            Solicitando permiso de cámara...
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
+    return <View style={[styles.fill, { backgroundColor: "#000" }]} />;
   }
 
-  // Pantalla sin permisos
   if (!permission.granted) {
+    const blocked = !permission.canAskAgain;
     return (
-      <SafeAreaView style={styles.permissionContainer}>
-        <View style={styles.permissionContent}>
-          <View style={styles.iconContainerWarning}>
-            <Text style={styles.iconEmoji}>🔒</Text>
-          </View>
-          <Text style={styles.permissionTitle}>Permiso requerido</Text>
-          <Text style={styles.permissionText}>
-            Para escanear códigos QR necesitamos acceso a tu cámara.
-          </Text>
-          <TouchableOpacity
-            style={styles.permissionButton}
-            onPress={requestPermission}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.permissionButtonText}>Permitir acceso</Text>
-          </TouchableOpacity>
+      <View style={[styles.fill, styles.permission, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
+        <View style={[styles.permIcon, { backgroundColor: colors.accentSoft }]}>
+          <Ionicons name="camera-outline" size={34} color={colors.accent} />
         </View>
-      </SafeAreaView>
+        <Text style={[styles.permTitle, { color: colors.text }]}>Necesitamos la cámara</Text>
+        <Text style={[styles.permText, { color: colors.textMuted }]}>
+          {blocked
+            ? "El acceso a la cámara está desactivado. Activalo desde los ajustes del sistema para escanear."
+            : "La usamos sólo para leer códigos QR y de barras. Nada se graba ni se envía."}
+        </Text>
+        <Button
+          label={blocked ? "Abrir ajustes" : "Permitir cámara"}
+          icon={blocked ? "settings-outline" : "camera"}
+          size="lg"
+          onPress={blocked ? () => Linking.openSettings() : requestPermission}
+          style={{ alignSelf: "stretch", marginTop: space.xxl }}
+        />
+        <Button label="Escanear desde una imagen" icon="image-outline" variant="ghost" onPress={scanFromGallery} style={{ marginTop: space.sm }} />
+      </View>
     );
   }
 
-  const scanLineTranslate = scanLineAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, FRAME_SIZE - 4],
-  });
+  // ── Visor ──────────────────────────────────────────────────
+  const cameraActive = focused && appActive;
+  const locOn = !!hasLocation && gpsOn;
+  const locLabel = !settings.saveLocation || !hasLocation ? "Sin ubicación" : gpsOn ? "Ubicación activa" : "GPS apagado";
+  const frameTop = Math.max(insets.top + 96, (height - frameSize) / 2 - 70);
+  const frameLeft = (width - frameSize) / 2;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
+    <View style={[styles.fill, { backgroundColor: "#000" }]}>
+      {focused && <StatusBar style="light" />}
+      {cameraActive && (
         <CameraView
-          style={styles.camera}
-          facing={type}
-          enableTorch={torchEnabled}
-          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        >
-          {/* Overlay con estructura */}
-          <View style={styles.overlay}>
-            {/* Header con instrucciones */}
-            <View style={styles.headerOverlay}>
-              <View style={styles.instructionBadge}>
-                <Text style={styles.instructionText}>
-                  {isLoading
-                    ? "⏳ Obteniendo ubicación..."
-                    : "📱 Apunta al código QR"}
-                </Text>
-              </View>
-              {/* Badges de estado */}
-              <View style={styles.statusBadges}>
-                {locationPermission && (
-                  <View style={styles.locationBadge}>
-                    <Text style={styles.locationBadgeText}>📍 GPS</Text>
-                  </View>
-                )}
-                {torchEnabled && (
-                  <View style={styles.flashBadge}>
-                    <Text style={styles.flashBadgeText}>💡 Flash ON</Text>
-                  </View>
-                )}
-              </View>
-              {/* Mensaje de error del flash */}
-              {flashError && (
-                <View style={styles.errorBadge}>
-                  <Text style={styles.errorBadgeText}>⚠️ {flashError}</Text>
-                </View>
-              )}
-            </View>
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          enableTorch={torch && facing === "back"}
+          onCameraReady={() => setCameraReady(true)}
+          onBarcodeScanned={state === "idle" ? onBarcodeScanned : undefined}
+          barcodeScannerSettings={{ barcodeTypes: settings.allFormats ? ALL_TYPES : QR_ONLY }}
+        />
+      )}
 
-            {/* Frame de escaneo animado */}
-            <View style={styles.frameContainer}>
-              <Animated.View
-                style={[styles.frame, { transform: [{ scale: pulseAnim }] }]}
-              >
-                {/* Esquinas decorativas */}
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-
-                {/* Línea de escaneo animada */}
-                <Animated.View
-                  style={[
-                    styles.scanLine,
-                    { transform: [{ translateY: scanLineTranslate }] },
-                  ]}
-                />
-              </Animated.View>
-            </View>
-
-            {/* Barra de acciones inferior */}
-            <View style={styles.bottomActions}>
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    type === "front" && styles.actionButtonActive,
-                  ]}
-                  onPress={handleToggleCamera}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionIcon}>🔄</Text>
-                  <Text style={styles.actionLabel}>
-                    {type === "back" ? "Frontal" : "Trasera"}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    torchEnabled && styles.actionButtonFlashActive,
-                    type === "front" && styles.actionButtonDisabled,
-                  ]}
-                  onPress={handleToggleFlash}
-                  activeOpacity={0.7}
-                  disabled={false}
-                >
-                  <Text style={styles.actionIcon}>
-                    {torchEnabled ? "💡" : "🔦"}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      type === "front" && styles.actionLabelDisabled,
-                    ]}
-                  >
-                    {torchEnabled ? "Apagar" : "Flash"}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => navigation.navigate("History")}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionIcon}>📋</Text>
-                  <Text style={styles.actionLabel}>Historial</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => navigation.navigate("Map", {})}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionIcon}>🗺️</Text>
-                  <Text style={styles.actionLabel}>Mapa</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => navigation.navigate("DeviceInfo")}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionIcon}>📱</Text>
-                  <Text style={styles.actionLabel}>Info</Text>
-                </TouchableOpacity>
-              </View>
-
-              {scanned && (
-                <TouchableOpacity
-                  style={styles.rescanButton}
-                  onPress={() => setScanned(false)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.rescanButtonText}>
-                    ↻ Escanear de nuevo
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        </CameraView>
+      {/* Máscara con recorte: enfoca la atención en el visor */}
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={[styles.mask, { height: frameTop }]} />
+        <View style={{ flexDirection: "row", height: frameSize }}>
+          <View style={[styles.mask, { width: frameLeft }]} />
+          <View style={{ width: frameSize }} />
+          <View style={[styles.mask, { flex: 1 }]} />
+        </View>
+        <View style={[styles.mask, { flex: 1 }]} />
       </View>
-    </SafeAreaView>
+
+      {/* Visor animado (moxen · Escáner) */}
+      <View style={{ position: "absolute", top: frameTop, left: frameLeft }} pointerEvents="none">
+        <ScannerFrame size={frameSize} state={state} successColor="#22C55E" errorColor="#FF5A5A" />
+      </View>
+
+      {/* Barra superior */}
+      <View style={[styles.topBar, { paddingTop: insets.top + space.sm }]}>
+        <PressableScale
+          onPress={async () => {
+            if (!settings.saveLocation) {
+              navigation.navigate("Settings");
+              return;
+            }
+            if (!hasLocation) setHasLocation(await requestLocationPermission());
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={locLabel}
+          style={styles.pill}
+        >
+          <Ionicons name={locOn ? "location" : "location-outline"} size={14} color={locOn ? "#4ADE80" : "#C9CED6"} />
+          <Text style={styles.pillText}>{locLabel}</Text>
+        </PressableScale>
+        <View style={styles.topActions}>
+          <IconButton tone="glass" icon={torch ? "flash" : "flash-outline"} label={torch ? "Apagar linterna" : "Encender linterna"} active={torch} onPress={toggleTorch} />
+          <IconButton tone="glass" icon="camera-reverse-outline" label="Cambiar cámara" onPress={flipCamera} />
+        </View>
+      </View>
+
+      {/* Indicaciones */}
+      <View style={[styles.hintWrap, { top: frameTop + frameSize + space.xxl }]} pointerEvents="none">
+        {state === "idle" ? (
+          <Animated.View key="idle" entering={FadeIn.duration(180)} exiting={FadeOut.duration(120)} style={{ alignItems: "center" }}>
+            <Text style={styles.hint}>{cameraReady ? "Apuntá a un código" : "Iniciando cámara…"}</Text>
+            <Text style={styles.subHint}>{settings.allFormats ? "QR, Data Matrix, PDF417 y códigos de barras" : "Sólo códigos QR"}</Text>
+          </Animated.View>
+        ) : state === "success" ? (
+          <Animated.View key="ok" entering={FadeIn.duration(140)}>
+            <Text style={styles.hint}>¡Código leído!</Text>
+          </Animated.View>
+        ) : null}
+      </View>
+
+      {/* Acción secundaria */}
+      <View style={[styles.bottom, { bottom: space.xl }]}>
+        <PressableScale onPress={scanFromGallery} accessibilityRole="button" accessibilityLabel="Escanear desde una imagen de la galería" style={styles.galleryBtn}>
+          <Ionicons name="images-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.galleryText}>Desde galería</Text>
+        </PressableScale>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.neutral[950],
+  fill: { flex: 1 },
+  mask: { backgroundColor: "rgba(0,0,0,0.55)" },
+  topBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    paddingHorizontal: space.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  container: {
-    flex: 1,
+  topActions: { flexDirection: "row", gap: space.sm },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(20,22,27,0.55)",
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: radius.full,
   },
-  camera: {
-    flex: 1,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // OVERLAY Y ESTRUCTURA
-  // ═══════════════════════════════════════════════════════════════
-  overlay: {
-    flex: 1,
-    backgroundColor: "transparent",
-  },
-  headerOverlay: {
-    paddingTop: Platform.OS === "ios" ? 20 : 40,
-    paddingHorizontal: 16,
+  pillText: { color: "#FFFFFF", fontSize: font.size.sm, fontWeight: font.weight.semibold },
+  hintWrap: { position: "absolute", left: space.xl, right: space.xl, alignItems: "center" },
+  hint: { color: "#FFFFFF", fontSize: font.size.xl, fontWeight: font.weight.bold, letterSpacing: -0.3, textAlign: "center" },
+  subHint: { color: "rgba(255,255,255,0.7)", fontSize: font.size.sm, marginTop: 6, textAlign: "center" },
+  bottom: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  galleryBtn: {
+    flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    height: 48,
+    paddingHorizontal: space.xl,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(20,22,27,0.6)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.25)",
   },
-  instructionBadge: {
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 9999,
-  },
-  instructionText: {
-    color: Colors.text.inverse,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  locationBadge: {
-    backgroundColor: Colors.secondary[500] + "CC",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 9999,
-  },
-  locationBadgeText: {
-    color: Colors.text.inverse,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  statusBadges: {
-    flexDirection: "row",
-    gap: 6,
-  },
-  flashBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.warning + "CC",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 9999,
-    gap: 4,
-  },
-  flashBadgeText: {
-    color: Colors.neutral[900],
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  errorBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.danger[500] + "CC",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 9999,
-    gap: 4,
-  },
-  errorBadgeText: {
-    color: Colors.text.inverse,
-    fontSize: 11,
-    fontWeight: "600",
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // FRAME DE ESCANEO
-  // ═══════════════════════════════════════════════════════════════
-  frameContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  frame: {
-    width: FRAME_SIZE,
-    height: FRAME_SIZE,
-    backgroundColor: "transparent",
-    position: "relative",
-  },
-  corner: {
-    position: "absolute",
-    width: 28,
-    height: 28,
-    borderColor: Colors.secondary[400],
-    borderWidth: 4,
-  },
-  cornerTL: {
-    top: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: 8,
-  },
-  cornerTR: {
-    top: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderBottomWidth: 0,
-    borderTopRightRadius: 8,
-  },
-  cornerBL: {
-    bottom: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderTopWidth: 0,
-    borderBottomLeftRadius: 8,
-  },
-  cornerBR: {
-    bottom: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderTopWidth: 0,
-    borderBottomRightRadius: 8,
-  },
-  scanLine: {
-    position: "absolute",
-    left: 10,
-    right: 10,
-    height: 3,
-    backgroundColor: Colors.secondary[400],
-    borderRadius: 2,
-    shadowColor: Colors.secondary[400],
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // ACCIONES INFERIORES
-  // ═══════════════════════════════════════════════════════════════
-  bottomActions: {
-    paddingHorizontal: 16,
-    paddingBottom: Platform.OS === "ios" ? 32 : 24,
-    gap: 16,
-  },
-  actionRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-  },
-  actionButton: {
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 65,
-  },
-  actionButtonActive: {
-    backgroundColor: Colors.secondary[500] + "40",
-  },
-  actionButtonFlashActive: {
-    backgroundColor: Colors.warning + "40",
-  },
-  actionButtonDisabled: {
-    opacity: 0.4,
-  },
-  actionIcon: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  actionLabel: {
-    color: Colors.text.inverse,
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  actionLabelDisabled: {
-    color: Colors.neutral[400],
-  },
-  rescanButton: {
-    backgroundColor: Colors.primary[600],
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    shadowColor: Colors.primary[600],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  rescanButtonText: {
-    color: Colors.text.inverse,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // PANTALLAS DE PERMISOS
-  // ═══════════════════════════════════════════════════════════════
-  permissionContainer: {
-    flex: 1,
-    backgroundColor: Colors.neutral[900],
-  },
-  permissionContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 32,
-  },
-  iconContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.primary[600] + "20",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  iconContainerWarning: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.danger[500] + "20",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  iconEmoji: {
-    fontSize: 48,
-  },
-  permissionTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: Colors.text.inverse,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  permissionText: {
-    fontSize: 15,
-    color: Colors.neutral[400],
-    textAlign: "center",
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  permissionButton: {
-    backgroundColor: Colors.primary[600],
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    shadowColor: Colors.primary[600],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  permissionButtonText: {
-    color: Colors.text.inverse,
-    fontSize: 15,
-    fontWeight: "600",
-  },
+  galleryText: { color: "#FFFFFF", fontSize: font.size.md, fontWeight: font.weight.semibold },
+  permission: { alignItems: "center", justifyContent: "center", paddingHorizontal: space.xxxl },
+  permIcon: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", marginBottom: space.xl },
+  permTitle: { fontSize: font.size.xxl, fontWeight: font.weight.heavy, letterSpacing: -0.5, textAlign: "center" },
+  permText: { fontSize: font.size.md, lineHeight: 22, textAlign: "center", marginTop: space.sm },
 });

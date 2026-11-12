@@ -1,314 +1,135 @@
-import { StyleSheet, Dimensions, Platform } from "react-native";
-import { Colors } from "./colors";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import { Platform } from "react-native";
+import type { Level } from "../lib/qr/analyze";
 
 /**
- * 🎨 Estilos compartidos del tema QR Scanner App
- * Sistema de diseño coherente y profesional
+ * Sistema de diseño: tokens únicos para toda la app, con variante clara y oscura.
+ * Escala de espaciado de 4pt, radios suaves y una sola tinta de acento.
  */
 
-// ═══════════════════════════════════════════════════════════════
-// ESPACIADO CONSISTENTE (8pt grid system)
-// ═══════════════════════════════════════════════════════════════
-export const Spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-  xxl: 48,
+export type Palette = {
+  bg: string;
+  surface: string;
+  surfaceAlt: string;
+  elevated: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  textMuted: string;
+  textFaint: string;
+  accent: string;
+  accentPressed: string;
+  accentSoft: string;
+  onAccent: string;
+  safe: string;
+  safeSoft: string;
+  info: string;
+  infoSoft: string;
+  warning: string;
+  warningSoft: string;
+  danger: string;
+  dangerSoft: string;
+  star: string;
+  overlay: string;
+  scrim: string;
+  skeleton: string;
+  skeletonHighlight: string;
+};
+
+const light: Palette = {
+  bg: "#F4F5F7",
+  surface: "#FFFFFF",
+  surfaceAlt: "#EEF0F3",
+  elevated: "#FFFFFF",
+  border: "#E3E6EB",
+  borderStrong: "#CDD2DA",
+  text: "#0C0E13",
+  textMuted: "#565D6B",
+  textFaint: "#8B93A1",
+  accent: "#2E5BFF",
+  accentPressed: "#2448D1",
+  accentSoft: "#E8EDFF",
+  onAccent: "#FFFFFF",
+  safe: "#12844A",
+  safeSoft: "#E3F5EA",
+  info: "#2E5BFF",
+  infoSoft: "#E8EDFF",
+  warning: "#B45309",
+  warningSoft: "#FDF1DE",
+  danger: "#D12C2C",
+  dangerSoft: "#FCE6E6",
+  star: "#E9A100",
+  overlay: "rgba(12,14,19,0.45)",
+  scrim: "rgba(5,6,9,0.62)",
+  skeleton: "#E6E8EC",
+  skeletonHighlight: "rgba(255,255,255,0.7)",
+};
+
+const dark: Palette = {
+  bg: "#0A0B0E",
+  surface: "#14161B",
+  surfaceAlt: "#1C1F26",
+  elevated: "#1E2129",
+  border: "#252932",
+  borderStrong: "#353A45",
+  text: "#F1F3F7",
+  textMuted: "#A2AAB8",
+  textFaint: "#6D7584",
+  accent: "#6A8CFF",
+  accentPressed: "#5576F0",
+  accentSoft: "#1B2340",
+  onAccent: "#FFFFFF",
+  safe: "#3DD68C",
+  safeSoft: "#11281D",
+  info: "#6A8CFF",
+  infoSoft: "#1B2340",
+  warning: "#F5B94A",
+  warningSoft: "#2E2211",
+  danger: "#FF6B6B",
+  dangerSoft: "#341617",
+  star: "#F5C04A",
+  overlay: "rgba(0,0,0,0.6)",
+  scrim: "rgba(0,0,0,0.62)",
+  skeleton: "#1C1F26",
+  skeletonHighlight: "rgba(255,255,255,0.06)",
+};
+
+export const palettes = { light, dark };
+
+export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
+export const radius = { sm: 8, md: 12, lg: 16, xl: 22, full: 999 } as const;
+
+export const font = {
+  mono: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+  size: { xs: 12, sm: 13, md: 15, lg: 17, xl: 20, xxl: 26, display: 32 },
+  weight: { regular: "400", medium: "500", semibold: "600", bold: "700", heavy: "800" },
 } as const;
 
-// ═══════════════════════════════════════════════════════════════
-// TIPOGRAFÍA
-// ═══════════════════════════════════════════════════════════════
-export const Typography = {
-  sizes: {
-    xs: 11,
-    sm: 13,
-    base: 15,
-    md: 17,
-    lg: 20,
-    xl: 24,
-    xxl: 32,
-  },
-  weights: {
-    regular: "400" as const,
-    medium: "500" as const,
-    semibold: "600" as const,
-    bold: "700" as const,
-  },
-  lineHeights: {
-    tight: 1.2,
-    normal: 1.5,
-    relaxed: 1.75,
-  },
-} as const;
+export function levelColors(p: Palette, level: Level) {
+  switch (level) {
+    case "danger":
+      return { fg: p.danger, bg: p.dangerSoft };
+    case "warning":
+      return { fg: p.warning, bg: p.warningSoft };
+    case "info":
+      return { fg: p.info, bg: p.infoSoft };
+    default:
+      return { fg: p.safe, bg: p.safeSoft };
+  }
+}
 
-// ═══════════════════════════════════════════════════════════════
-// BORDES Y RADIOS
-// ═══════════════════════════════════════════════════════════════
-export const BorderRadius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  full: 9999,
-} as const;
+export function shadow(p: Palette, scheme: "light" | "dark", depth: 1 | 2 = 1) {
+  if (scheme === "dark") return { borderWidth: 1, borderColor: p.border };
+  return Platform.select({
+    ios: {
+      shadowColor: "#0C0E13",
+      shadowOpacity: depth === 1 ? 0.06 : 0.12,
+      shadowRadius: depth === 1 ? 8 : 18,
+      shadowOffset: { width: 0, height: depth === 1 ? 2 : 8 },
+    },
+    default: { elevation: depth === 1 ? 1 : 4 },
+  })!;
+}
 
-// ═══════════════════════════════════════════════════════════════
-// SOMBRAS PREMIUM
-// ═══════════════════════════════════════════════════════════════
-export const Shadows = StyleSheet.create({
-  sm: {
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  md: {
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  lg: {
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  xl: {
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  colored: {
-    shadowColor: Colors.primary[600],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-});
-
-// ═══════════════════════════════════════════════════════════════
-// ESTILOS GLOBALES COMPARTIDOS
-// ═══════════════════════════════════════════════════════════════
-export const GlobalStyles = StyleSheet.create({
-  // Contenedores
-  screenContainer: {
-    flex: 1,
-    backgroundColor: Colors.background.primary,
-  },
-  contentContainer: {
-    flex: 1,
-    paddingHorizontal: Spacing.md,
-  },
-  centerContent: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  // Tarjetas premium
-  card: {
-    backgroundColor: Colors.background.card,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.border.light,
-    ...Shadows.md,
-  },
-  cardPressed: {
-    backgroundColor: Colors.neutral[50],
-    transform: [{ scale: 0.98 }],
-  },
-
-  // Headers
-  headerContainer: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.lg,
-    backgroundColor: Colors.background.card,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.light,
-  },
-  headerTitle: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.text.primary,
-    textAlign: "center",
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.secondary,
-    textAlign: "center",
-    marginTop: Spacing.xs,
-  },
-
-  // Botones
-  buttonPrimary: {
-    backgroundColor: Colors.primary[600],
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    ...Shadows.colored,
-  },
-  buttonSecondary: {
-    backgroundColor: Colors.secondary[500],
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    ...Shadows.md,
-  },
-  buttonOutline: {
-    backgroundColor: "transparent",
-    paddingVertical: Spacing.md - 2,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    borderWidth: 2,
-    borderColor: Colors.primary[600],
-  },
-  buttonGhost: {
-    backgroundColor: Colors.primary[50],
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-  },
-  buttonDanger: {
-    backgroundColor: Colors.danger[500],
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    ...Shadows.md,
-  },
-  buttonText: {
-    color: Colors.text.inverse,
-    fontSize: Typography.sizes.base,
-    fontWeight: Typography.weights.semibold,
-    letterSpacing: 0.3,
-  },
-  buttonTextOutline: {
-    color: Colors.primary[600],
-    fontSize: Typography.sizes.base,
-    fontWeight: Typography.weights.semibold,
-  },
-  buttonIcon: {
-    marginRight: Spacing.sm,
-  },
-
-  // Textos
-  title: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.text.primary,
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-  },
-  body: {
-    fontSize: Typography.sizes.base,
-    color: Colors.text.secondary,
-    lineHeight: Typography.sizes.base * Typography.lineHeights.normal,
-  },
-  caption: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.text.muted,
-  },
-  label: {
-    fontSize: Typography.sizes.sm,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.secondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: Spacing.sm,
-  },
-
-  // Badges
-  badge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-    alignSelf: "flex-start",
-  },
-  badgePrimary: {
-    backgroundColor: Colors.primary[100],
-  },
-  badgeText: {
-    fontSize: Typography.sizes.xs,
-    fontWeight: Typography.weights.semibold,
-  },
-
-  // Divisores
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border.light,
-    marginVertical: Spacing.md,
-  },
-
-  // Estados vacíos
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: Spacing.xl,
-  },
-  emptyIcon: {
-    marginBottom: Spacing.md,
-  },
-  emptyTitle: {
-    fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.text.primary,
-    textAlign: "center",
-    marginBottom: Spacing.sm,
-  },
-  emptyDescription: {
-    fontSize: Typography.sizes.base,
-    color: Colors.text.muted,
-    textAlign: "center",
-    lineHeight: Typography.sizes.base * Typography.lineHeights.relaxed,
-  },
-});
-
-// ═══════════════════════════════════════════════════════════════
-// ANIMACIONES (para usar con Animated API)
-// ═══════════════════════════════════════════════════════════════
-export const AnimationConfig = {
-  spring: {
-    damping: 15,
-    stiffness: 150,
-  },
-  timing: {
-    fast: 150,
-    normal: 300,
-    slow: 500,
-  },
-} as const;
-
-export { Colors };
+// Easing de Emil Kowalski (ver skill animate-expo)
+export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+export const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const;

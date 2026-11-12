@@ -1,620 +1,427 @@
-import React, { useEffect, useMemo } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  Dimensions,
-} from "react-native";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../../App";
-import * as Clipboard from "expo-clipboard";
-import * as Linking from "expo-linking";
-import { saveScan } from "../utils/storage";
-import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { WebView } from "react-native-webview";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 
-// ═══════════════════════════════════════════════════════════════
-// 🎨 SISTEMA DE COLORES PREMIUM
-// ═══════════════════════════════════════════════════════════════
-const Colors = {
-  primary: {
-    50: "#eff6ff",
-    100: "#dbeafe",
-    200: "#bfdbfe",
-    500: "#3b82f6",
-    600: "#2563eb",
-    700: "#1d4ed8",
-  },
-  secondary: { 50: "#ecfdf5", 400: "#34d399", 500: "#10b981", 600: "#059669" },
-  accent: { 50: "#f5f3ff", 500: "#8b5cf6", 600: "#7c3aed" },
-  danger: { 50: "#fef2f2", 500: "#ef4444", 600: "#dc2626" },
-  neutral: {
-    50: "#f8fafc",
-    100: "#f1f5f9",
-    200: "#e2e8f0",
-    400: "#94a3b8",
-    500: "#64748b",
-    600: "#475569",
-    800: "#1e293b",
-    900: "#0f172a",
-  },
-  text: {
-    primary: "#0f172a",
-    secondary: "#475569",
-    muted: "#94a3b8",
-    inverse: "#ffffff",
-  },
-  background: { primary: "#f8fafc", card: "#ffffff" },
-  border: { light: "#e2e8f0" },
-};
+import { RootScreenProps } from "../navigation/types";
+import { useApp } from "../state/AppContext";
+import { Button, Card, IconButton, ScreenHeader, SectionLabel } from "../components/ui";
+import { KindIcon } from "../components/KindIcon";
+import { BreathingDots, VerdictStamp } from "../components/motion";
+import { useToast } from "../components/Toast";
+import { contentFields, contentTitle, FORMAT_LABEL, KIND_LABEL, parseContent, Field } from "../lib/qr/parse";
+import { analyzeContent, analyzeUrl, Check } from "../lib/qr/analyze";
+import { parseUrl } from "../lib/qr/url";
+import { buildActions, copyText, openUrlSafely, resolveFinalUrl } from "../lib/actions";
+import { deleteScan, getScan, getScans, restoreScan, ScanItem, subscribeScans, updateScan } from "../lib/storage";
+import { formatDateTime } from "../lib/format";
+import { haptic } from "../lib/haptics";
+import { font, levelColors, radius, space } from "../theme";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+export default function ResultScreen({ route, navigation }: RootScreenProps<"Result">) {
+  const { scanId, data, format, justScanned } = route.params;
+  const { colors, settings } = useApp();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
 
-type Props = NativeStackScreenProps<RootStackParamList, "Result">;
+  const [item, setItem] = useState<ScanItem | null>(
+    data !== undefined ? { id: "preview", data, type: format ?? "qr", date: new Date().toISOString() } : null
+  );
+  const [timesScanned, setTimesScanned] = useState(1);
+  const [missing, setMissing] = useState(false);
 
-/**
- * 📄 ResultScreen - Pantalla de resultado del escaneo QR
- * Diseño premium con jerarquía visual clara
- */
-export default function ResultScreen({ route, navigation }: Readonly<Props>) {
-  const { data, location } = route.params;
-  const isValidAterQR = route.params.isValidAterQR ?? true;
-
+  // Carga + suscripción: la ubicación llega en segundo plano
   useEffect(() => {
-    const save = async () => {
-      // Solo guardar si viene del scanner, tiene datos válidos Y es un QR ATER válido
-      if (route.params.fromScanner && isValidAterQR) {
-        console.log("Guardando scan:", data, route.params.type, location);
-        if (data && route.params.type) {
-          await saveScan(data, route.params.type, location);
-          console.log("Scan guardado correctamente con ubicación");
-        }
-      } else if (route.params.fromScanner && !isValidAterQR) {
-        console.log("QR no válido - No se guardará:", data);
-      }
-    };
-    save();
-  }, []);
-
-  // Mostrar alerta de QR inválido
-  useEffect(() => {
-    if (route.params.fromScanner && !isValidAterQR) {
-      Alert.alert(
-        "⚠️ Código QR no válido",
-        "El código escaneado no pertenece a los dominios permitidos de ATER.\n\nDominios válidos:\n• portal.ater.gob.ar\n• portalt.ater.gob.ar\n• portald.ater.gob.ar\n\nPuedes ver el contenido pero no se guardará en el historial.",
-        [{ text: "Entendido" }]
-      );
-    }
-  }, [isValidAterQR]);
-
-  const parsed = useMemo(() => {
-    try {
-      return JSON.parse(data);
-    } catch {
-      return null;
-    }
-  }, [data]);
-
-  const isUrl = useMemo(() => {
-    const regexp = /^(https?:\/\/)/i;
-    return regexp.test(data);
-  }, [data]);
-
-  const handleOpen = async () => {
-    if (!isUrl) {
-      Alert.alert("No es un URL válido", data);
-      return;
-    }
-    const proceed = await new Promise<boolean>((resolve) => {
-      Alert.alert(
-        "Abrir URL",
-        `¿Deseas abrir:\n\n${data}`,
-        [
-          { text: "Cancelar", onPress: () => resolve(false), style: "cancel" },
-          { text: "Abrir", onPress: () => resolve(true) },
-        ],
-        { cancelable: true }
-      );
+    if (!scanId) return;
+    let alive = true;
+    getScan(scanId).then((s) => {
+      if (!alive) return;
+      if (s) setItem(s);
+      else setMissing(true);
     });
-    if (proceed) {
-      try {
-        await Linking.openURL(data);
-      } catch (err) {
-        Alert.alert("Error abriendo URL", String(err));
-      }
-    }
+    const unsub = subscribeScans((items) => {
+      const s = items.find((x) => x.id === scanId);
+      if (s) setItem(s);
+    });
+    return () => {
+      alive = false;
+      unsub();
+    };
+  }, [scanId]);
+
+  useEffect(() => {
+    if (!item) return;
+    getScans().then((all) => setTimesScanned(all.filter((s) => s.data === item.data).length || 1));
+  }, [item?.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const content = useMemo(() => (item ? parseContent(item.data, item.type) : null), [item?.data, item?.type]); // eslint-disable-line react-hooks/exhaustive-deps
+  const verdict = useMemo(() => (content ? analyzeContent(content) : null), [content]);
+
+  const notify = (message: string) => toast.show(message);
+
+  if (missing) {
+    return (
+      <View style={[styles.fill, { backgroundColor: colors.bg }]}>
+        <ScreenHeader title="Resultado" onBack={navigation.goBack} large={false} />
+        <View style={[styles.fill, styles.center]}>
+          <Text style={{ color: colors.textMuted }}>Este escaneo ya no existe.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!item || !content || !verdict) {
+    return (
+      <View style={[styles.fill, styles.center, { backgroundColor: colors.bg }]}>
+        <BreathingDots />
+      </View>
+    );
+  }
+
+  const saved = item.id !== "preview";
+  const actions = buildActions({ content, verdict, settings, notify });
+  const primary = actions.find((a) => a.primary) ?? actions[0];
+  const secondary = actions.filter((a) => a !== primary);
+  const fields = contentFields(content);
+
+  const toggleFavorite = async () => {
+    haptic.selection();
+    await updateScan(item.id, { favorite: !item.favorite });
+    toast.show({ message: item.favorite ? "Quitado de favoritos" : "Agregado a favoritos", icon: item.favorite ? "star-outline" : "star" });
   };
 
-  const handleCopy = async () => {
-    await Clipboard.setStringAsync(data);
-    Alert.alert("✓ Copiado", "Contenido copiado al portapapeles");
+  const remove = async () => {
+    const removed = await deleteScan(item.id);
+    haptic.medium();
+    navigation.goBack();
+    if (removed) {
+      toast.show({ message: "Escaneo eliminado", action: { label: "Deshacer", onPress: () => restoreScan(removed.item, removed.index) } });
+    }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        {/* Header Premium */}
-        <View style={styles.header}>
-          <View
-            style={isValidAterQR ? styles.headerIcon : styles.headerIconWarning}
-          >
-            <Text style={styles.headerIconText}>
-              {isValidAterQR ? "✓" : "⚠️"}
+    <View style={[styles.fill, { backgroundColor: colors.bg }]}>
+      <ScreenHeader
+        title="Resultado"
+        large={false}
+        onBack={navigation.goBack}
+        right={
+          saved ? (
+            <>
+              <IconButton icon={item.favorite ? "star" : "star-outline"} label={item.favorite ? "Quitar de favoritos" : "Agregar a favoritos"} onPress={toggleFavorite} size={40} tone={item.favorite ? "accent" : "default"} />
+              <IconButton icon="trash-outline" label="Eliminar" onPress={remove} size={40} />
+            </>
+          ) : undefined
+        }
+      />
+
+      <ScrollView contentContainerStyle={{ padding: space.lg, paddingBottom: insets.bottom + 120, gap: space.xl }} showsVerticalScrollIndicator={false}>
+        {/* ── Encabezado del contenido ── */}
+        <Animated.View entering={FadeInDown.duration(260)}>
+          <Card>
+            <View style={styles.heroTop}>
+              <KindIcon kind={content.kind} size={48} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.kindLabel, { color: colors.textMuted }]}>
+                  {KIND_LABEL[content.kind]} · {FORMAT_LABEL[item.type] ?? item.type.toUpperCase()}
+                </Text>
+                <Text style={[styles.time, { color: colors.textFaint }]}>
+                  {formatDateTime(item.date)}
+                  {item.source === "image" ? " · desde imagen" : ""}
+                </Text>
+              </View>
+              {item.favorite && <Ionicons name="star" size={18} color={colors.star} />}
+            </View>
+            <Text style={[styles.title, { color: colors.text }]} selectable numberOfLines={3}>
+              {contentTitle(content)}
             </Text>
-          </View>
-          <Text style={styles.headerTitle}>
-            {isValidAterQR ? "Escaneo exitoso" : "QR no válido"}
-          </Text>
-          <Text style={styles.headerSubtitle}>
-            {new Date().toLocaleString()}
-          </Text>
-          {!isValidAterQR && (
-            <View style={styles.warningBanner}>
-              <Text style={styles.warningText}>
-                No se guardará en el historial
-              </Text>
+            <View style={{ marginTop: space.md }}>
+              <VerdictStamp level={verdict.level} label={verdict.label} />
+            </View>
+            <Text style={[styles.summary, { color: colors.textMuted }]}>{verdict.summary}</Text>
+          </Card>
+        </Animated.View>
+
+        {/* ── Acciones ── */}
+        <View style={{ gap: space.sm }}>
+          <Button label={primary.label} icon={primary.icon} size="lg" onPress={primary.run} variant={verdict.level === "danger" && primary.id === "open" ? "danger" : "primary"} />
+          {secondary.length > 0 && (
+            <View style={styles.secondaryRow}>
+              {secondary.map((a) => (
+                <Button key={a.id} label={a.label} icon={a.icon} variant="secondary" onPress={a.run} style={{ flexGrow: 1, flexBasis: secondary.length > 2 ? "30%" : "45%", paddingHorizontal: space.md }} />
+              ))}
             </View>
           )}
         </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Tarjeta de datos raw */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>📝 CONTENIDO</Text>
-            <View style={styles.card}>
-              <Text style={styles.cardData} selectable>
-                {data}
+        {/* ── Chequeos de seguridad ── */}
+        <View>
+          <SectionLabel>Verificación</SectionLabel>
+          <Card padded={false}>
+            {verdict.checks.map((c, i) => (
+              <CheckRow key={c.id} check={c} last={i === verdict.checks.length - 1} />
+            ))}
+          </Card>
+        </View>
+
+        {content.kind === "url" && <UrlTools href={content.url.href} verdictBlocked={verdict.blocked} danger={verdict.level === "danger"} />}
+
+        {/* ── Detalles ── */}
+        {fields.length > 0 && (
+          <View>
+            <SectionLabel>Detalles</SectionLabel>
+            <Card padded={false}>
+              {fields.map((f, i) => (
+                <FieldRow key={`${f.label}-${i}`} field={f} last={i === fields.length - 1} onCopy={(v) => copyText(v, notify, `${f.label} copiado`)} />
+              ))}
+            </Card>
+          </View>
+        )}
+
+        {/* ── Contenido crudo ── */}
+        <RawContent raw={content.kind === "json" ? JSON.stringify(content.value, null, 2) : item.data} onCopy={() => copyText(item.data, notify, "Contenido copiado")} />
+
+        {/* ── Ubicación ── */}
+        {saved && (item.locating || item.location) && (
+          <View>
+            <SectionLabel>Dónde se escaneó</SectionLabel>
+            <Card>
+              {item.locating && !item.location ? (
+                <BreathingDots label="Obteniendo ubicación…" />
+              ) : item.location ? (
+                <>
+                  <View style={styles.locRow}>
+                    <View style={[styles.locIcon, { backgroundColor: colors.dangerSoft }]}>
+                      <Ionicons name="location" size={18} color={colors.danger} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.locAddress, { color: colors.text }]} numberOfLines={2}>
+                        {item.location.address ?? "Dirección no disponible"}
+                      </Text>
+                      <Text style={[styles.locCoords, { color: colors.textMuted }]}>
+                        {item.location.latitude.toFixed(5)}, {item.location.longitude.toFixed(5)}
+                        {item.location.accuracy ? ` · ±${Math.round(item.location.accuracy)} m` : ""}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.secondaryRow, { marginTop: space.md }]}>
+                    <Button label="Ver en mapa" icon="map-outline" variant="secondary" style={{ flex: 1 }} onPress={() => navigation.navigate("Map", { focusId: item.id })} />
+                    {timesScanned > 1 && (
+                      <Button label={`Ruta (${timesScanned})`} icon="git-commit-outline" variant="secondary" style={{ flex: 1 }} onPress={() => navigation.navigate("Map", { filterQrData: item.data })} />
+                    )}
+                  </View>
+                </>
+              ) : null}
+            </Card>
+          </View>
+        )}
+
+        {!saved && (
+          <Text style={[styles.note, { color: colors.textFaint }]}>
+            <Ionicons name="information-circle-outline" size={13} /> Este resultado no se guardó en el historial.
+          </Text>
+        )}
+      </ScrollView>
+
+      {justScanned && (
+        <Animated.View entering={FadeIn.delay(300)} style={[styles.footer, { paddingBottom: insets.bottom + space.md, backgroundColor: colors.bg, borderTopColor: colors.border }]}>
+          <Button label="Escanear otro" icon="scan-outline" variant="secondary" size="lg" onPress={navigation.goBack} />
+        </Animated.View>
+      )}
+
+      {/* Accesibilidad: el veredicto se anuncia como región viva */}
+      <View accessible accessibilityLiveRegion="polite" accessibilityLabel={`${verdict.label}. ${verdict.summary}`} style={styles.srOnly} />
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+function CheckRow({ check, last }: { check: Check; last: boolean }) {
+  const { colors } = useApp();
+  const { fg, bg } = levelColors(colors, check.level);
+  const icon = check.level === "danger" ? "close" : check.level === "warning" ? "alert" : check.level === "info" ? "information" : "checkmark";
+  return (
+    <View style={[styles.checkRow, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+      <View style={[styles.checkIcon, { backgroundColor: bg }]}>
+        <Ionicons name={icon} size={14} color={fg} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.checkTitle, { color: colors.text }]}>{check.title}</Text>
+        <Text style={[styles.checkDetail, { color: colors.textMuted }]}>{check.detail}</Text>
+      </View>
+    </View>
+  );
+}
+
+function FieldRow({ field, last, onCopy }: { field: Field; last: boolean; onCopy: (v: string) => void }) {
+  const { colors } = useApp();
+  const [revealed, setRevealed] = useState(false);
+  const hidden = field.secret && !revealed;
+  return (
+    <Pressable
+      onPress={() => onCopy(field.value)}
+      onLongPress={() => onCopy(field.value)}
+      accessibilityRole="button"
+      accessibilityLabel={`${field.label}: ${hidden ? "oculto" : field.value}. Tocá para copiar`}
+      style={({ pressed }) => [styles.fieldRow, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, pressed && { backgroundColor: colors.surfaceAlt }]}
+    >
+      <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{field.label}</Text>
+      <View style={styles.fieldValueWrap}>
+        <Text style={[styles.fieldValue, { color: colors.text }, field.mono && { fontFamily: font.mono, fontSize: font.size.sm }]} selectable={!hidden}>
+          {hidden ? "••••••••" : field.value}
+        </Text>
+        {field.secret && (
+          <Pressable onPress={() => setRevealed((r) => !r)} hitSlop={12} accessibilityRole="button" accessibilityLabel={revealed ? "Ocultar" : "Mostrar"}>
+            <Ionicons name={revealed ? "eye-off-outline" : "eye-outline"} size={18} color={colors.textMuted} />
+          </Pressable>
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
+function RawContent({ raw, onCopy }: { raw: string; onCopy: () => void }) {
+  const { colors } = useApp();
+  const long = raw.length > 280 || raw.split("\n").length > 8;
+  const [expanded, setExpanded] = useState(!long);
+  return (
+    <View>
+      <View style={styles.rawHeader}>
+        <SectionLabel style={{ marginBottom: 0 }}>Contenido original</SectionLabel>
+        <Pressable onPress={onCopy} hitSlop={10} accessibilityRole="button" accessibilityLabel="Copiar contenido original">
+          <Text style={[styles.link, { color: colors.accent }]}>Copiar</Text>
+        </Pressable>
+      </View>
+      <View style={[styles.raw, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+        <Text style={[styles.rawText, { color: colors.text }]} selectable numberOfLines={expanded ? undefined : 8}>
+          {raw}
+        </Text>
+        {long && (
+          <Pressable onPress={() => setExpanded((e) => !e)} hitSlop={8} style={{ marginTop: space.sm }}>
+            <Text style={[styles.link, { color: colors.accent }]}>{expanded ? "Ver menos" : `Ver todo (${raw.length} caracteres)`}</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function UrlTools({ href, verdictBlocked, danger }: { href: string; verdictBlocked: boolean; danger: boolean }) {
+  const { colors, settings } = useApp();
+  const [resolving, setResolving] = useState(false);
+  const [finalUrl, setFinalUrl] = useState<string | null | undefined>(undefined);
+  const [preview, setPreview] = useState(false);
+
+  const final = finalUrl ? parseUrl(finalUrl) : null;
+  const redirected = !!final && final.href.replace(/\/$/, "") !== href.replace(/\/$/, "");
+  const finalChecks = final && redirected ? analyzeUrl(final).filter((c) => c.level === "warning" || c.level === "danger") : [];
+
+  const resolve = async () => {
+    setResolving(true);
+    const result = await resolveFinalUrl(href);
+    setFinalUrl(result);
+    setResolving(false);
+    haptic.light();
+  };
+
+  const startPreview = () => {
+    if (danger) {
+      Alert.alert("Vista previa de un sitio peligroso", "Cargar la página puede exponer tu dispositivo. ¿Continuar?", [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Cargar", style: "destructive", onPress: () => setPreview(true) },
+      ]);
+    } else setPreview(true);
+  };
+
+  if (verdictBlocked) return null;
+
+  return (
+    <View>
+      <SectionLabel>Herramientas del enlace</SectionLabel>
+      <Card style={{ gap: space.md }}>
+        {finalUrl === undefined ? (
+          <Button label={resolving ? "Siguiendo redirecciones…" : "Ver destino real"} icon="git-branch-outline" variant="secondary" onPress={resolve} loading={resolving} accessibilityHint="Contacta al servidor para ver a dónde redirige el enlace" />
+        ) : finalUrl === null ? (
+          <Text style={{ color: colors.textMuted, fontSize: font.size.sm }}>No se pudo contactar al sitio para verificar el destino.</Text>
+        ) : (
+          <View style={{ gap: 6 }}>
+            <Text style={[styles.fieldLabel, { color: colors.textMuted }]}>{redirected ? "Redirige a" : "Destino final"}</Text>
+            <Text style={[styles.finalUrl, { color: colors.text }]} selectable numberOfLines={3}>
+              {finalUrl}
+            </Text>
+            {!redirected && <Text style={{ color: colors.safe, fontSize: font.size.sm }}>No hay redirecciones ocultas.</Text>}
+            {finalChecks.map((c) => (
+              <Text key={c.id} style={{ color: levelColors(colors, c.level).fg, fontSize: font.size.sm }}>
+                • {c.title}
               </Text>
-              {isUrl && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>🔗 URL detectada</Text>
+            ))}
+            {redirected && final && (
+              <Button
+                label={`Abrir ${final.host}`}
+                icon="open-outline"
+                variant="secondary"
+                onPress={() => openUrlSafely(final.href, { level: finalChecks.length ? "warning" : "safe", label: "", summary: "Revisá el destino.", checks: [], blocked: false }, settings)}
+              />
+            )}
+          </View>
+        )}
+
+        {!preview ? (
+          <Button label="Vista previa del sitio" icon="eye-outline" variant="ghost" onPress={startPreview} />
+        ) : (
+          <View style={[styles.webview, { borderColor: colors.border }]}>
+            <WebView
+              source={{ uri: finalUrl && final ? final.href : href }}
+              startInLoadingState
+              renderLoading={() => (
+                <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: colors.surface }]}>
+                  <BreathingDots label="Cargando vista previa…" />
                 </View>
               )}
-            </View>
+              setSupportMultipleWindows={false}
+              allowsLinkPreview={false}
+              javaScriptCanOpenWindowsAutomatically={false}
+              // Sólo navegación web dentro de la vista previa
+              onShouldStartLoadWithRequest={(req) => /^https?:\/\//i.test(req.url)}
+              style={{ flex: 1, backgroundColor: colors.surface }}
+            />
           </View>
-
-          {/* Tarjeta JSON si aplica */}
-          {parsed && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>📦 DATOS JSON</Text>
-              <View style={styles.cardCode}>
-                <Text style={styles.codeText} selectable>
-                  {JSON.stringify(parsed, null, 2)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Vista previa de la web si es URL */}
-          {isUrl && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>🌐 VISTA PREVIA DEL SITIO</Text>
-              <View style={styles.webviewContainer}>
-                <WebView
-                  source={{ uri: data }}
-                  style={styles.webview}
-                  startInLoadingState={true}
-                  javaScriptEnabled={true}
-                  domStorageEnabled={true}
-                  scalesPageToFit={true}
-                />
-              </View>
-            </View>
-          )}
-
-          {/* Tarjeta de ubicación */}
-          {location && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>📍 UBICACIÓN DEL ESCANEO</Text>
-              <View style={styles.cardLocation}>
-                <View style={styles.locationRow}>
-                  <View style={styles.locationCoord}>
-                    <Text style={styles.locationLabel}>Latitud</Text>
-                    <Text style={styles.locationValue}>
-                      {location.latitude.toFixed(6)}
-                    </Text>
-                  </View>
-                  <View style={styles.locationDivider} />
-                  <View style={styles.locationCoord}>
-                    <Text style={styles.locationLabel}>Longitud</Text>
-                    <Text style={styles.locationValue}>
-                      {location.longitude.toFixed(6)}
-                    </Text>
-                  </View>
-                </View>
-                {location.address && (
-                  <View style={styles.addressContainer}>
-                    <Text style={styles.addressText}>
-                      📍 {location.address}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* Acciones principales */}
-          <View style={styles.actionsSection}>
-            {isUrl && (
-              <TouchableOpacity
-                style={styles.buttonPrimary}
-                onPress={handleOpen}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.buttonIcon}>🌐</Text>
-                <Text style={styles.buttonText}>Abrir URL</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={styles.buttonSecondary}
-              onPress={handleCopy}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonIcon}>📋</Text>
-              <Text style={styles.buttonText}>Copiar contenido</Text>
-            </TouchableOpacity>
-
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={styles.buttonAccent}
-                onPress={() =>
-                  navigation.navigate("Map", { filterQrData: data })
-                }
-                activeOpacity={0.8}
-              >
-                <Text style={styles.buttonSmallIcon}>🗺️</Text>
-                <Text style={styles.buttonSmallText}>Ver ruta</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.buttonAccentLight}
-                onPress={() => navigation.navigate("Map", {})}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.buttonSmallIcon}>🌍</Text>
-                <Text style={styles.buttonSmallTextDark}>Todos</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.divider} />
-
-            <TouchableOpacity
-              style={styles.buttonSuccess}
-              onPress={() => navigation.replace("Scanner")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonIcon}>📷</Text>
-              <Text style={styles.buttonText}>Escanear de nuevo</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.buttonGhost}
-              onPress={() => navigation.navigate("History")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonGhostText}>
-                📋 Ver historial completo
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </View>
-    </SafeAreaView>
+        )}
+      </Card>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.background.primary,
-  },
-  container: {
-    flex: 1,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // HEADER
-  // ═══════════════════════════════════════════════════════════════
-  header: {
-    alignItems: "center",
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    backgroundColor: Colors.background.card,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.light,
-  },
-  headerIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.secondary[50],
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  headerIconWarning: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.danger[50],
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  headerIconText: {
-    fontSize: 28,
-    color: Colors.secondary[500],
-  },
-  warningBanner: {
-    marginTop: 12,
-    backgroundColor: Colors.danger[50],
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.danger[500],
-  },
-  warningText: {
-    fontSize: 12,
-    color: Colors.danger[600],
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: Colors.text.primary,
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: Colors.text.muted,
-    marginTop: 4,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // CONTENIDO
-  // ═══════════════════════════════════════════════════════════════
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  section: {
-    marginBottom: 20,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.text.muted,
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // TARJETAS
-  // ═══════════════════════════════════════════════════════════════
-  card: {
-    backgroundColor: Colors.background.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.border.light,
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardData: {
-    fontSize: 15,
-    color: Colors.text.primary,
-    lineHeight: 22,
-  },
-  cardCode: {
-    backgroundColor: Colors.neutral[800],
-    borderRadius: 12,
-    padding: 16,
-  },
-  codeText: {
-    fontSize: 13,
-    color: Colors.secondary[400],
-    fontFamily: "monospace",
-    lineHeight: 20,
-  },
-  badge: {
-    alignSelf: "flex-start",
-    backgroundColor: Colors.primary[50],
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    marginTop: 12,
-  },
-  badgeText: {
-    fontSize: 12,
-    color: Colors.primary[600],
-    fontWeight: "600",
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // WEBVIEW
-  // ═══════════════════════════════════════════════════════════════
-  webviewContainer: {
-    backgroundColor: Colors.background.card,
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: Colors.border.light,
-    shadowColor: Colors.neutral[900],
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    height: 400,
-  },
-  webview: {
-    flex: 1,
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // UBICACIÓN
-  // ═══════════════════════════════════════════════════════════════
-  cardLocation: {
-    backgroundColor: Colors.primary[50],
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.primary[100],
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  locationCoord: {
-    flex: 1,
-    alignItems: "center",
-  },
-  locationDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: Colors.primary[200],
-  },
-  locationLabel: {
-    fontSize: 11,
-    color: Colors.primary[600],
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  locationValue: {
-    fontSize: 14,
-    color: Colors.primary[700],
-    fontWeight: "700",
-    fontFamily: "monospace",
-  },
-  addressContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.primary[200],
-  },
-  addressText: {
-    fontSize: 13,
-    color: Colors.primary[700],
-    textAlign: "center",
-  },
-
-  // ═══════════════════════════════════════════════════════════════
-  // BOTONES
-  // ═══════════════════════════════════════════════════════════════
-  actionsSection: {
-    marginTop: 8,
-    gap: 12,
-  },
-  buttonPrimary: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary[600],
-    paddingVertical: 16,
-    borderRadius: 12,
-    shadowColor: Colors.primary[600],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  buttonSecondary: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.neutral[600],
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  buttonSuccess: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.secondary[500],
-    paddingVertical: 16,
-    borderRadius: 12,
-    shadowColor: Colors.secondary[500],
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  buttonAccent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.accent[500],
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  buttonAccentLight: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.accent[50],
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.accent[500],
-  },
-  buttonGhost: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-  },
-  buttonIcon: {
-    fontSize: 18,
-    marginRight: 8,
-  },
-  buttonText: {
-    color: Colors.text.inverse,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  buttonSmallIcon: {
-    fontSize: 16,
-    marginRight: 6,
-  },
-  buttonSmallText: {
-    color: Colors.text.inverse,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  buttonSmallTextDark: {
-    color: Colors.accent[600],
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  buttonGhostText: {
-    color: Colors.text.secondary,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border.light,
-    marginVertical: 8,
-  },
+  fill: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center" },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: space.md },
+  kindLabel: { fontSize: font.size.sm, fontWeight: font.weight.semibold },
+  time: { fontSize: font.size.xs, marginTop: 2, fontVariant: ["tabular-nums"] },
+  title: { fontSize: font.size.xxl, fontWeight: font.weight.heavy, letterSpacing: -0.6, marginTop: space.lg, lineHeight: 32 },
+  summary: { fontSize: font.size.sm, marginTop: space.sm, lineHeight: 19 },
+  secondaryRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  checkRow: { flexDirection: "row", gap: space.md, paddingVertical: 14, paddingHorizontal: space.lg },
+  checkIcon: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  checkTitle: { fontSize: font.size.md, fontWeight: font.weight.semibold },
+  checkDetail: { fontSize: font.size.sm, marginTop: 3, lineHeight: 19 },
+  fieldRow: { paddingVertical: 12, paddingHorizontal: space.lg, gap: 3 },
+  fieldLabel: { fontSize: font.size.xs, fontWeight: font.weight.semibold, textTransform: "uppercase", letterSpacing: 0.6 },
+  fieldValueWrap: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  fieldValue: { flex: 1, fontSize: font.size.md, lineHeight: 21 },
+  rawHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: space.sm, paddingRight: space.xs },
+  raw: { borderRadius: radius.md, padding: space.lg, borderWidth: StyleSheet.hairlineWidth },
+  rawText: { fontFamily: font.mono, fontSize: font.size.sm, lineHeight: 20 },
+  link: { fontSize: font.size.sm, fontWeight: font.weight.semibold },
+  locRow: { flexDirection: "row", gap: space.md, alignItems: "center" },
+  locIcon: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  locAddress: { fontSize: font.size.md, fontWeight: font.weight.semibold },
+  locCoords: { fontSize: font.size.xs, marginTop: 2, fontFamily: font.mono },
+  finalUrl: { fontFamily: font.mono, fontSize: font.size.sm, lineHeight: 19 },
+  webview: { height: 420, borderRadius: radius.md, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth },
+  note: { fontSize: font.size.xs, textAlign: "center" },
+  footer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: space.lg, paddingTop: space.md, borderTopWidth: StyleSheet.hairlineWidth },
+  srOnly: { position: "absolute", width: 1, height: 1, opacity: 0 },
 });

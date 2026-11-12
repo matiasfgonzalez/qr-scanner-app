@@ -1,586 +1,192 @@
-import React, { useEffect, useState, useMemo } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-} from "react-native";
-import { WebView } from "react-native-webview";
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { RootStackParamList } from "../../App";
-import { getScans, ScanItem } from "../utils/storage";
-import { SafeAreaView } from "react-native-safe-area-context";
+import React, { useEffect, useMemo, useState } from "react";
+import { StyleSheet, Text, View } from "react-native";
+import { WebView, WebViewMessageEvent } from "react-native-webview";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// ═══════════════════════════════════════════════════════════════
-// 🎨 SISTEMA DE COLORES PREMIUM
-// ═══════════════════════════════════════════════════════════════
-const Colors = {
-  primary: {
-    50: "#eff6ff",
-    500: "#3b82f6",
-    600: "#2563eb",
-  },
-  secondary: { 50: "#ecfdf5", 500: "#10b981", 600: "#059669" },
-  accent: { 50: "#f5f3ff", 500: "#8b5cf6" },
-  neutral: {
-    50: "#f8fafc",
-    100: "#f1f5f9",
-    600: "#475569",
-    900: "#0f172a",
-  },
-  text: {
-    primary: "#0f172a",
-    secondary: "#475569",
-    muted: "#94a3b8",
-    inverse: "#ffffff",
-  },
-  background: { primary: "#f8fafc", card: "#ffffff" },
-  border: { light: "#e2e8f0" },
-};
-
-// Colores para marcadores
-const MARKER_COLORS = [
-  "#ef4444",
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ec4899",
-  "#06b6d4",
-  "#f97316",
-];
-
-type Props = NativeStackScreenProps<RootStackParamList, "Map">;
+import { RootScreenProps } from "../navigation/types";
+import { useApp } from "../state/AppContext";
+import { Button, EmptyState, ScreenHeader } from "../components/ui";
+import { BreathingDots } from "../components/motion";
+import { kindTint } from "../components/KindIcon";
+import { contentTitle, KIND_LABEL, parseContent } from "../lib/qr/parse";
+import { getScans, ScanItem, subscribeScans } from "../lib/storage";
+import { formatDateTime } from "../lib/format";
+import { font, radius, space } from "../theme";
 
 /**
- * 🗺️ MapScreen - OpenStreetMap + Leaflet (Sin API Key)
+ * Mapa con Leaflet + teselas CARTO/OpenStreetMap (sin API key).
+ * Los datos se inyectan como JSON escapado y los popups se arman con
+ * textContent: el contenido de un QR nunca se interpreta como HTML.
  */
-export default function MapScreen({ navigation, route }: Readonly<Props>) {
-  const [scans, setScans] = useState<ScanItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const { filterQrData } = route.params || {};
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        const data = await getScans();
-        let scansWithLocation = data.filter(
-          (scan) =>
-            scan.location &&
-            typeof scan.location.latitude === "number" &&
-            typeof scan.location.longitude === "number" &&
-            !isNaN(scan.location.latitude) &&
-            !isNaN(scan.location.longitude)
-        );
+type Point = { id: string; lat: number; lng: number; title: string; kind: string; date: string; address: string; color: string; n: number };
 
-        if (filterQrData) {
-          scansWithLocation = scansWithLocation.filter(
-            (scan) => scan.data === filterQrData
-          );
-        }
+/** JSON seguro para incrustar dentro de <script> */
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
 
-        setScans(scansWithLocation);
-      } catch (error) {
-        console.error("Error loading scans:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
-  }, [filterQrData]);
+function buildHtml(points: Point[], opts: { dark: boolean; route: boolean; focusId?: string; accent: string }) {
+  const tiles = opts.dark
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+  return `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body,#map{width:100%;height:100%;background:${opts.dark ? "#0A0B0E" : "#F4F5F7"}}
+  body{-webkit-tap-highlight-color:transparent;font-family:-apple-system,system-ui,Roboto,sans-serif}
+  .leaflet-popup-content-wrapper{border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.18);background:${opts.dark ? "#1E2129" : "#fff"};color:${opts.dark ? "#F1F3F7" : "#0C0E13"}}
+  .leaflet-popup-tip{background:${opts.dark ? "#1E2129" : "#fff"}}
+  .leaflet-popup-content{margin:12px 14px;min-width:190px}
+  .k{font-size:11px;font-weight:600;opacity:.6;text-transform:uppercase;letter-spacing:.5px}
+  .t{font-size:14px;font-weight:700;margin:4px 0;word-break:break-word}
+  .m{font-size:12px;opacity:.7;margin-top:2px}
+  .b{margin-top:10px;width:100%;border:0;border-radius:10px;padding:9px;font-weight:600;font-size:13px;background:${opts.accent};color:#fff}
+  .pin{width:30px;height:30px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;color:#fff;font:700 11px system-ui}
+  .leaflet-control-attribution{font-size:9px}
+</style>
+</head><body><div id="map"></div>
+<script>
+  var points = ${jsonForScript(points)};
+  var route = ${opts.route ? "true" : "false"};
+  var focusId = ${jsonForScript(opts.focusId ?? null)};
+  var map = L.map('map', { zoomControl: false, attributionControl: false });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  // Atribución sin enlaces: nada navega dentro del WebView
+  L.control.attribution({ prefix: false }).addTo(map);
+  L.tileLayer('${tiles}', { maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 
-  // Asignar colores por QR
-  const qrColors = useMemo(() => {
-    const unique = [...new Set(scans.map((s) => s.data))];
-    const colors: Record<string, string> = {};
-    unique.forEach((qr, i) => {
-      colors[qr] = MARKER_COLORS[i % MARKER_COLORS.length];
-    });
-    return colors;
-  }, [scans]);
-
-  // Calcular centro del mapa
-  const mapConfig = useMemo(() => {
-    if (scans.length === 0) {
-      return { lat: -34.6037, lng: -58.3816, zoom: 12 };
-    }
-
-    const lats = scans.map((s) => s.location!.latitude);
-    const lngs = scans.map((s) => s.location!.longitude);
-
-    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-    const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
-
-    const maxDiff = Math.max(
-      Math.max(...lats) - Math.min(...lats),
-      Math.max(...lngs) - Math.min(...lngs)
-    );
-
-    let zoom = 15;
-    if (maxDiff > 0.5) zoom = 10;
-    else if (maxDiff > 0.1) zoom = 12;
-    else if (maxDiff > 0.01) zoom = 14;
-
-    return { lat: centerLat, lng: centerLng, zoom };
-  }, [scans]);
-
-  // HTML con Leaflet + OpenStreetMap
-  const mapHtml = useMemo(() => {
-    const markers = scans
-      .map((scan, index) => {
-        const color = qrColors[scan.data];
-        const date = new Date(scan.date).toLocaleString();
-        const addr = scan.location?.address || "Sin dirección";
-        const qrText =
-          scan.data.length > 35
-            ? scan.data.substring(0, 35) + "..."
-            : scan.data;
-
-        return `
-          L.circleMarker([${scan.location!.latitude}, ${
-          scan.location!.longitude
-        }], {
-            radius: 12,
-            fillColor: '${color}',
-            color: '#fff',
-            weight: 3,
-            fillOpacity: 0.9
-          }).addTo(map).bindPopup(\`
-            <div style="font-family: system-ui, sans-serif; min-width: 180px;">
-              <div style="display:flex;align-items:center;margin-bottom:6px;">
-                <div style="width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;"></div>
-                <span style="font-size:11px;color:#64748b;font-weight:600;">#${
-                  scans.length - index
-                }</span>
-              </div>
-              <div style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:4px;word-break:break-all;">
-                ${qrText}
-              </div>
-              <div style="font-size:10px;color:#64748b;margin-bottom:2px;">🕐 ${date}</div>
-              <div style="font-size:10px;color:#3b82f6;">📍 ${addr}</div>
-            </div>
-          \`);
-        `;
-      })
-      .join("\n");
-
-    const boundsCode =
-      scans.length > 1
-        ? `map.fitBounds([${scans
-            .map((s) => `[${s.location!.latitude},${s.location!.longitude}]`)
-            .join(",")}], {padding:[30,30]});`
-        : "";
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box;}
-    html,body,#map{width:100%;height:100%;}
-    .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.15);}
-    .leaflet-popup-content{margin:10px;}
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script>
-    var map = L.map('map').setView([${mapConfig.lat},${mapConfig.lng}],${mapConfig.zoom});
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      maxZoom:19,
-      attribution:'© OpenStreetMap'
-    }).addTo(map);
-    ${markers}
-    ${boundsCode}
-  </script>
-</body>
-</html>`;
-  }, [scans, qrColors, mapConfig]);
-
-  // Agrupar para leyenda
-  const groupedByQr = useMemo(() => {
-    return scans.reduce((acc, scan) => {
-      if (!acc[scan.data]) acc[scan.data] = [];
-      acc[scan.data].push(scan);
-      return acc;
-    }, {} as Record<string, ScanItem[]>);
-  }, [scans]);
-
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingState}>
-          <ActivityIndicator size="large" color={Colors.primary[600]} />
-          <Text style={styles.loadingText}>Cargando mapa...</Text>
-        </View>
-      </SafeAreaView>
-    );
+  function popup(p) {
+    var el = document.createElement('div');
+    var k = document.createElement('div'); k.className = 'k'; k.textContent = p.kind + (route ? ' · #' + p.n : ''); el.appendChild(k);
+    var t = document.createElement('div'); t.className = 't'; t.textContent = p.title; el.appendChild(t);
+    var d = document.createElement('div'); d.className = 'm'; d.textContent = p.date; el.appendChild(d);
+    if (p.address) { var a = document.createElement('div'); a.className = 'm'; a.textContent = p.address; el.appendChild(a); }
+    var b = document.createElement('button'); b.className = 'b'; b.textContent = 'Ver detalle';
+    b.onclick = function () { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'open', id: p.id })); };
+    el.appendChild(b);
+    return el;
   }
 
+  var latlngs = [], focused = null;
+  points.forEach(function (p) {
+    var html = '<div class="pin" style="background:' + p.color + '">' + (route ? p.n : '') + '</div>';
+    var icon = L.divIcon({ html: html, className: '', iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14] });
+    var m = L.marker([p.lat, p.lng], { icon: icon }).addTo(map).bindPopup(popup(p));
+    latlngs.push([p.lat, p.lng]);
+    if (p.id === focusId) focused = m;
+  });
+
+  if (route && latlngs.length > 1) {
+    L.polyline(latlngs, { color: '${opts.accent}', weight: 4, opacity: .8, dashArray: '8 8', lineCap: 'round' }).addTo(map);
+  }
+
+  if (focused) { map.setView(focused.getLatLng(), 17); focused.openPopup(); }
+  else if (latlngs.length === 1) map.setView(latlngs[0], 16);
+  else if (latlngs.length > 1) map.fitBounds(latlngs, { padding: [48, 48], maxZoom: 17 });
+  else map.setView([-34.6037, -58.3816], 11);
+</script></body></html>`;
+}
+
+export default function MapScreen({ navigation, route }: RootScreenProps<"Map">) {
+  const { filterQrData, focusId } = route.params ?? {};
+  const { colors, scheme } = useApp();
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState<ScanItem[] | null>(null);
+
+  useEffect(() => {
+    getScans().then(setItems);
+    return subscribeScans(setItems);
+  }, []);
+
+  const points = useMemo<Point[]>(() => {
+    let list = (items ?? []).filter((s) => s.location && Number.isFinite(s.location.latitude) && Number.isFinite(s.location.longitude));
+    if (filterQrData) list = list.filter((s) => s.data === filterQrData).reverse(); // orden cronológico para la ruta
+    return list.map((s, i) => {
+      const c = parseContent(s.data, s.type);
+      return {
+        id: s.id,
+        lat: s.location!.latitude,
+        lng: s.location!.longitude,
+        title: contentTitle(c),
+        kind: KIND_LABEL[c.kind],
+        date: formatDateTime(s.date),
+        address: s.location!.address ?? "",
+        color: kindTint(c.kind, "light"),
+        n: i + 1,
+      };
+    });
+  }, [items, filterQrData]);
+
+  // El HTML sólo se regenera si cambian los puntos (no en cada render)
+  const html = useMemo(
+    () => buildHtml(points, { dark: scheme === "dark", route: !!filterQrData, focusId, accent: colors.accent }),
+    [points, scheme, filterQrData, focusId, colors.accent]
+  );
+
+  const onMessage = (e: WebViewMessageEvent) => {
+    try {
+      const msg = JSON.parse(e.nativeEvent.data);
+      if (msg?.type === "open" && typeof msg.id === "string") navigation.navigate("Result", { scanId: msg.id });
+    } catch {
+      /* mensaje ajeno */
+    }
+  };
+
+  const title = filterQrData ? "Ruta del código" : "Mapa";
+  const subtitle = items === null ? " " : `${points.length} ubicaci${points.length === 1 ? "ón" : "ones"}`;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>
-            {filterQrData ? "📍 Ruta del QR" : "🌍 Mapa de Escaneos"}
-          </Text>
-          <View style={styles.headerStats}>
-            <View style={styles.statBadge}>
-              <Text style={styles.statNumber}>{scans.length}</Text>
-              <Text style={styles.statLabel}>escaneos</Text>
-            </View>
-            {!filterQrData && Object.keys(groupedByQr).length > 0 && (
-              <View style={[styles.statBadge, styles.statBadgeSecondary]}>
-                <Text style={styles.statNumberSecondary}>
-                  {Object.keys(groupedByQr).length}
-                </Text>
-                <Text style={styles.statLabelSecondary}>QRs</Text>
-              </View>
-            )}
-          </View>
+    <View style={[styles.fill, { backgroundColor: colors.bg }]}>
+      <ScreenHeader title={title} onBack={navigation.goBack} large={false} right={<Text style={[styles.count, { color: colors.textMuted }]}>{subtitle}</Text>} />
+      {items === null ? (
+        <View style={[styles.fill, styles.center]}>
+          <BreathingDots label="Cargando mapa…" />
         </View>
-
-        {/* Mapa o estado vacío */}
-        {scans.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Text style={styles.emptyIconText}>🗺️</Text>
-            </View>
-            <Text style={styles.emptyTitle}>Sin ubicaciones</Text>
-            <Text style={styles.emptyDescription}>
-              {filterQrData
-                ? "Este QR no tiene escaneos con ubicación."
-                : "Aún no hay escaneos con ubicación."}
-              {"\n\n"}Escanea códigos QR para ver su ubicación.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.mapContainer}>
-            <WebView
-              source={{ html: mapHtml }}
-              style={styles.map}
-              originWhitelist={["*"]}
-              javaScriptEnabled
-              domStorageEnabled
-              startInLoadingState
-              renderLoading={() => (
-                <View style={styles.webviewLoading}>
-                  <ActivityIndicator size="large" color={Colors.primary[600]} />
-                </View>
-              )}
-            />
-
-            {/* Leyenda */}
-            {!filterQrData && Object.keys(groupedByQr).length > 1 && (
-              <View style={styles.legend}>
-                <Text style={styles.legendTitle}>Códigos QR</Text>
-                {Object.entries(groupedByQr)
-                  .slice(0, 4)
-                  .map(([qr, items]) => (
-                    <View key={qr} style={styles.legendItem}>
-                      <View
-                        style={[
-                          styles.legendDot,
-                          { backgroundColor: qrColors[qr] },
-                        ]}
-                      />
-                      <Text style={styles.legendText} numberOfLines={1}>
-                        {qr.substring(0, 16)}...
-                      </Text>
-                      <Text style={styles.legendCount}>({items.length})</Text>
-                    </View>
-                  ))}
-                {Object.keys(groupedByQr).length > 4 && (
-                  <Text style={styles.legendMore}>
-                    +{Object.keys(groupedByQr).length - 4} más
-                  </Text>
-                )}
+      ) : points.length === 0 ? (
+        <EmptyState
+          icon="map-outline"
+          title="Sin ubicaciones"
+          description={filterQrData ? "Este código no tiene escaneos con ubicación." : "Activá “Guardar ubicación” en Ajustes y tus escaneos aparecerán acá."}
+          action={<Button label="Volver" variant="secondary" onPress={navigation.goBack} />}
+        />
+      ) : (
+        <View style={styles.fill}>
+          <WebView
+            source={{ html }}
+            originWhitelist={["*"]}
+            onMessage={onMessage}
+            javaScriptEnabled
+            domStorageEnabled
+            setSupportMultipleWindows={false}
+            startInLoadingState
+            renderLoading={() => (
+              <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: colors.bg }]}>
+                <BreathingDots label="Cargando mapa…" />
               </View>
             )}
-
-            {/* Badge OSM */}
-            <View style={styles.osmBadge}>
-              <Text style={styles.osmBadgeText}>🗺️ OpenStreetMap</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Bottom bar */}
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={styles.buttonPrimary}
-            onPress={() => navigation.replace("Scanner")}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonIcon}>📷</Text>
-            <Text style={styles.buttonText}>Escanear</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.buttonSecondary}
-            onPress={() => navigation.navigate("History")}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonIcon}>📋</Text>
-            <Text style={styles.buttonText}>Historial</Text>
-          </TouchableOpacity>
-
+            style={{ backgroundColor: colors.bg }}
+          />
           {filterQrData && (
-            <TouchableOpacity
-              style={styles.buttonAccent}
-              onPress={() => navigation.setParams({ filterQrData: undefined })}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonIcon}>🌍</Text>
-              <Text style={styles.buttonText}>Todos</Text>
-            </TouchableOpacity>
+            <View style={[styles.floating, { bottom: insets.bottom + space.lg }]}>
+              <Button label="Ver todos los escaneos" icon="earth-outline" variant="secondary" onPress={() => navigation.setParams({ filterQrData: undefined })} style={styles.floatingBtn} />
+            </View>
           )}
         </View>
-      </View>
-    </SafeAreaView>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: Colors.background.primary,
-  },
-  container: {
-    flex: 1,
-  },
-  header: {
-    backgroundColor: Colors.background.card,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.light,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.text.primary,
-  },
-  headerStats: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  statBadge: {
-    backgroundColor: Colors.primary[50],
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  statBadgeSecondary: {
-    backgroundColor: Colors.secondary[50],
-  },
-  statNumber: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Colors.primary[600],
-  },
-  statNumberSecondary: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: Colors.secondary[600],
-  },
-  statLabel: {
-    fontSize: 10,
-    color: Colors.primary[600],
-  },
-  statLabelSecondary: {
-    fontSize: 10,
-    color: Colors.secondary[600],
-  },
-  mapContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  map: {
-    flex: 1,
-  },
-  webviewLoading: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: Colors.background.primary,
-  },
-  legend: {
-    position: "absolute",
-    bottom: 90,
-    left: 12,
-    backgroundColor: Colors.background.card,
-    padding: 12,
-    borderRadius: 10,
-    maxWidth: 180,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: Colors.border.light,
-  },
-  legendTitle: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: Colors.text.primary,
-    marginBottom: 8,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  legendText: {
-    flex: 1,
-    fontSize: 10,
-    color: Colors.text.secondary,
-  },
-  legendCount: {
-    fontSize: 9,
-    color: Colors.text.muted,
-    fontWeight: "600",
-  },
-  legendMore: {
-    fontSize: 10,
-    color: Colors.text.muted,
-    marginTop: 4,
-    fontStyle: "italic",
-  },
-  osmBadge: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    backgroundColor: "rgba(255,255,255,0.95)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  osmBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
-    color: Colors.text.secondary,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 40,
-  },
-  emptyIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: Colors.neutral[100],
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  emptyIconText: {
-    fontSize: 32,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: Colors.text.primary,
-    marginBottom: 8,
-  },
-  emptyDescription: {
-    fontSize: 14,
-    color: Colors.text.muted,
-    textAlign: "center",
-    lineHeight: 22,
-  },
-  loadingState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 15,
-    color: Colors.text.secondary,
-  },
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    padding: 14,
-    gap: 10,
-    backgroundColor: Colors.background.card,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border.light,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  buttonPrimary: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.secondary[500],
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  buttonSecondary: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.neutral[600],
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  buttonAccent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.accent[500],
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  buttonIcon: {
-    fontSize: 14,
-    marginRight: 5,
-  },
-  buttonText: {
-    color: Colors.text.inverse,
-    fontSize: 13,
-    fontWeight: "600",
-  },
+  fill: { flex: 1 },
+  center: { alignItems: "center", justifyContent: "center" },
+  count: { fontSize: font.size.sm, fontWeight: font.weight.medium },
+  floating: { position: "absolute", left: space.lg, right: space.lg, alignItems: "center" },
+  floatingBtn: { borderRadius: radius.full, paddingHorizontal: space.xxl, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
 });

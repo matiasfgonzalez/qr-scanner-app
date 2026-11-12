@@ -1,351 +1,111 @@
-# 📱 QR Scanner Pro
+# QR Scanner Pro
 
 <p align="center">
-  <img src="./assets/icon-app.png" alt="QR Scanner Pro Logo" width="120" height="120" />
+  <img src="./assets/icon-app.png" alt="QR Scanner Pro" width="120" height="120" />
 </p>
 
 <p align="center">
-  <strong>Aplicación profesional de escaneo de códigos QR con geolocalización y diseño premium</strong>
+  Escáner de códigos QR y de barras que <strong>verifica la seguridad</strong> de cada código antes de abrirlo,
+  guarda dónde lo escaneaste y permite generar los tuyos.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Expo-54.0-blue?style=flat-square&logo=expo" alt="Expo" />
-  <img src="https://img.shields.io/badge/React%20Native-0.81.5-61DAFB?style=flat-square&logo=react" alt="React Native" />
+  <img src="https://img.shields.io/badge/Expo-54-blue?style=flat-square&logo=expo" alt="Expo" />
+  <img src="https://img.shields.io/badge/React%20Native-0.81-61DAFB?style=flat-square&logo=react" alt="React Native" />
   <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=flat-square&logo=typescript" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green?style=flat-square" alt="Platform" />
 </p>
 
 ---
 
-## 📋 Descripción
+## Qué hace
 
-**QR Scanner Pro** es una aplicación móvil desarrollada con React Native y Expo que permite escanear códigos QR de manera rápida y eficiente. La aplicación incluye características avanzadas como:
+- **Escanea cualquier código**: QR, Data Matrix, PDF417, Aztec, EAN‑13/8, UPC‑A/E, Code 128/39/93, ITF‑14 y Codabar. Desde la cámara o desde una imagen de la galería.
+- **Acepta todos los orígenes y los valida**: no hay lista blanca de dominios. Cada código recibe un veredicto (**Seguro**, **Precaución** o **Peligroso**) con el detalle de cada chequeo.
+- **Entiende el contenido** y ofrece la acción correcta: abrir enlace, conectarse a Wi‑Fi (copiar clave), llamar, enviar SMS o email, abrir en mapas, ver un contacto o un evento, buscar un producto, etc.
+- **Historial** con búsqueda, filtros por tipo, favoritos, deslizar para borrar con *Deshacer* y exportación a CSV.
+- **Mapa** de dónde escaneaste cada código y ruta cronológica de un mismo QR (Leaflet + OpenStreetMap/CARTO, sin API key).
+- **Generador de QR** para enlaces, texto, Wi‑Fi, contactos (vCard), email y teléfono, validado con el mismo analizador y compartible como imagen.
+- **Modo claro y oscuro**, vibración háptica y animaciones respetuosas de *Reducir movimiento*.
 
-- 📷 **Escaneo de códigos QR** con la cámara del dispositivo
-- 🔦 **Flash/Linterna** integrada para escaneo en condiciones de poca luz
-- 🗺️ **Geolocalización** para registrar dónde se escaneó cada código
-- 📍 **Mapa interactivo** con OpenStreetMap (sin necesidad de API key)
-- 📜 **Historial de escaneos** con búsqueda y filtrado
-- 📱 **Información del dispositivo** con identificador único
-- 🎨 **Diseño premium** con UI/UX profesional y animaciones
+## Validación de seguridad
 
----
+El analizador vive en [`src/lib/qr/`](src/lib/qr/) y no depende de React Native, así que se puede probar en Node.
 
-## ✨ Características Principales
+| Tipo | Qué se verifica |
+| --- | --- |
+| Enlaces | HTTPS vs HTTP, credenciales embebidas (`banco.com@malicioso.com`), IP en lugar de dominio, red local, dominio y TLD válidos, homógrafos IDN/punycode y mezcla de alfabetos, TLDs de alto abuso, dominios que imitan a otro (`paypal.com.cuenta.top`), marcas usadas fuera de su dominio, acortadores, redirecciones en parámetros, descargas ejecutables (`.apk`, `.exe`…), palabras de phishing y dominios gubernamentales |
+| Wi‑Fi | SSID presente, red abierta, WEP obsoleto, largo de clave WPA |
+| Email / teléfono / SMS | Formato de dirección y número, números de tarifa especial |
+| Productos | Dígito de control GS1 (EAN/UPC/ITF) y país de registro |
+| Cripto | Formato de dirección Bitcoin/Ethereum y advertencia de pago irreversible |
+| 2FA (`otpauth://`) | Aviso de secreto sensible |
+| Esquemas | `javascript:`, `data:`, `file:` y similares se **bloquean** |
+| Texto | Caracteres de control y de dirección ocultos (bidi) |
 
-### 🔍 Escáner QR
+Además, **“Ver destino real”** sigue las redirecciones de un enlace (bajo demanda) y la vista previa web sólo se carga si el usuario la pide.
 
-- Escaneo en tiempo real con expo-camera v17
-- Soporte para flash/linterna con `enableTorch`
-- Detección automática de tipos de contenido (URLs, texto, etc.)
-- Vibración al detectar código
-
-### 🗺️ Geolocalización
-
-- Captura automática de ubicación al escanear
-- Mapa interactivo con marcadores de ubicaciones escaneadas
-- Geocodificación inversa para obtener direcciones
-- Implementado con OpenStreetMap + Leaflet (sin API key necesaria)
-
-### 📜 Historial
-
-- Lista de todos los códigos escaneados
-- Información de fecha, hora y ubicación
-- Búsqueda por contenido
-- Opción de eliminar entradas individuales o limpiar todo
-
-### 📱 Info del Dispositivo
-
-- **Android ID** / **iOS Vendor ID** - Identificador único real del dispositivo
-- Información completa de hardware y software
-- Datos de red y conectividad
-- Estado de batería
-- Función de copiar y compartir información
-
----
-
-## 🛠️ Tecnologías Utilizadas
-
-| Categoría      | Tecnología                     | Versión |
-| -------------- | ------------------------------ | ------- |
-| Framework      | React Native                   | 0.81.5  |
-| Plataforma     | Expo SDK                       | 54.0    |
-| Lenguaje       | TypeScript                     | 5.9.2   |
-| Navegación     | React Navigation               | 7.x     |
-| Cámara         | expo-camera                    | 17.0    |
-| Ubicación      | expo-location                  | 19.0    |
-| Mapas          | react-native-webview + Leaflet | -       |
-| Almacenamiento | AsyncStorage                   | 2.2.0   |
-| Device Info    | expo-device, expo-application  | 8.x     |
-
----
-
-## 📁 Estructura del Proyecto
+## Estructura
 
 ```
-qr-scanner-app/
-├── App.tsx                 # Componente raíz con navegación
-├── index.ts                # Entry point
-├── app.json                # Configuración de Expo
-├── eas.json                # Configuración de EAS Build
-├── package.json            # Dependencias
-├── tsconfig.json           # Configuración TypeScript
-├── assets/
-│   ├── icon-app.png        # Icono de la aplicación
-│   ├── adaptive-icon.png   # Icono adaptativo Android
-│   ├── splash-icon.png     # Splash screen
-│   └── favicon.png         # Favicon web
-└── src/
-    ├── screens/
-    │   ├── ScannerScreen.tsx     # Pantalla principal del escáner
-    │   ├── ResultScreen.tsx      # Resultado del escaneo
-    │   ├── HistoryScreen.tsx     # Historial de escaneos
-    │   ├── MapScreen.tsx         # Mapa con ubicaciones
-    │   └── DeviceInfoScreen.tsx  # Info del dispositivo
-    ├── theme/
-    │   ├── colors.ts        # Sistema de colores
-    │   └── index.ts         # Exportaciones del tema
-    └── utils/
-        └── storage.ts       # Utilidades de almacenamiento
+App.tsx                     Navegación (pestañas + stack) y proveedores
+src/
+├── lib/
+│   ├── qr/
+│   │   ├── url.ts          Parser de URLs propio (el URL de RN está incompleto)
+│   │   ├── parse.ts        Detección de tipo de contenido y campos
+│   │   └── analyze.ts      Veredicto de seguridad por tipo
+│   ├── actions.ts          Acciones por tipo y apertura segura de enlaces
+│   ├── storage.ts          Historial (cola de escritura, suscripciones) y ajustes
+│   ├── scan.ts             Guarda el escaneo y completa la ubicación en segundo plano
+│   ├── location.ts         Ubicación rápida sin bloquear ni mostrar diálogos del sistema
+│   ├── haptics.ts · format.ts
+├── components/
+│   ├── ui.tsx              Botones, tarjetas, chips, encabezados, filas de ajustes
+│   ├── motion.tsx          Animaciones (Reanimated): visor, sello, esqueleto, puntos
+│   ├── Toast.tsx           Avisos y patrón “Deshacer” con anillo de cuenta regresiva
+│   └── KindIcon.tsx
+├── screens/                Scanner · Result · History · Create · Settings · Map · DeviceInfo
+├── state/AppContext.tsx    Ajustes y tema (claro/oscuro/sistema)
+└── theme/index.ts          Tokens de diseño
 ```
 
----
-
-## 🚀 Instalación
-
-### Prerrequisitos
-
-- Node.js 18+
-- npm o yarn
-- Expo CLI (`npm install -g expo-cli`)
-- EAS CLI (`npm install -g eas-cli`)
-- Android Studio (para emulador Android)
-- Xcode (para simulador iOS - solo macOS)
-
-### Pasos de Instalación
-
-1. **Clonar el repositorio**
-
-   ```bash
-   git clone https://github.com/matiasfgonzalez/qr-scanner-app.git
-   cd qr-scanner-app
-   ```
-
-2. **Instalar dependencias**
-
-   ```bash
-   npm install
-   ```
-
-3. **Iniciar el proyecto**
-
-   ```bash
-   npx expo start
-   ```
-
-4. **Ejecutar en dispositivo/emulador**
-   - Presiona `a` para Android
-   - Presiona `i` para iOS
-   - Escanea el QR con la app Expo Go
-
----
-
-## 📦 Build y Distribución
-
-### Generar APK (Android)
+## Desarrollo
 
 ```bash
-# Build de preview (APK para testing)
-eas build --platform android --profile preview
-
-# Build de producción (AAB para Play Store)
-eas build --platform android --profile production
+npm install
+npm start            # Expo Dev Server (abrir con Expo Go SDK 54)
+npm run android      # o iOS
+npm run typecheck    # TypeScript
 ```
 
-### Generar IPA (iOS)
+> El escaneo con cámara y la vibración se prueban mejor en un dispositivo real. En el emulador de Android se puede usar **Desde galería** con imágenes QR.
+
+## Build
 
 ```bash
-# Build de preview
-eas build --platform ios --profile preview
-
-# Build de producción
+eas build --platform android --profile preview      # APK
+eas build --platform android --profile production   # AAB
 eas build --platform ios --profile production
 ```
 
-### Configuración de EAS
+## Permisos
 
-El proyecto está configurado con los siguientes perfiles:
+| Permiso | Uso |
+| --- | --- |
+| Cámara | Leer códigos. No se graba ni se envía nada. |
+| Ubicación (opcional) | Registrar dónde se escaneó. Se puede desactivar en Ajustes. |
+| Fotos | Elegir una imagen para leer el código que contiene. |
 
-- **development**: Cliente de desarrollo con debug
-- **preview**: APK/IPA para testing interno
-- **production**: Build optimizado para tiendas
+Todo el historial se guarda únicamente en el dispositivo.
 
----
+## Créditos
 
-## 📱 Pantallas de la Aplicación
+- Animaciones del visor, el sello de veredicto, el esqueleto de carga, los puntos que respiran y el aviso de *Deshacer* inspiradas en los recursos de [moxen.cl](https://moxen.cl/recursos.html) (*Escáner*, *Sello*, *Esqueleto*, *Respiro* y *Deshacer*), reimplementadas para React Native con Reanimated.
+- [Expo](https://expo.dev/), [React Native](https://reactnative.dev/), [Leaflet](https://leafletjs.com/), [OpenStreetMap](https://www.openstreetmap.org/) y [CARTO](https://carto.com/).
 
-### 1. Scanner (Pantalla Principal)
+## Autor
 
-- Visor de cámara en tiempo real
-- Botón de flash/linterna
-- Botones de acceso rápido: Historial, Mapa, Info
+**Matías F. González** — [@matiasfgonzalez](https://github.com/matiasfgonzalez)
 
-### 2. Result (Resultado)
-
-- Muestra el contenido del QR escaneado
-- Detección automática de tipo (URL, texto, etc.)
-- Opciones: Copiar, Abrir link, Compartir
-- Muestra ubicación del escaneo
-
-### 3. History (Historial)
-
-- Lista cronológica de escaneos
-- Búsqueda por contenido
-- Información de fecha y ubicación
-- Eliminar entradas
-
-### 4. Map (Mapa)
-
-- Mapa OpenStreetMap interactivo
-- Marcadores de todas las ubicaciones escaneadas
-- Popups con información del escaneo
-
-### 5. Device Info (Información)
-
-- Identificador único del dispositivo
-- Información de hardware
-- Datos del sistema operativo
-- Estado de red y batería
-
----
-
-## 🔐 Permisos Requeridos
-
-### Android
-
-```xml
-<uses-permission android:name="android.permission.CAMERA" />
-<uses-permission android:name="android.permission.FLASHLIGHT" />
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-```
-
-### iOS
-
-```xml
-NSCameraUsageDescription: "La aplicación necesita acceso a la cámara para escanear códigos QR."
-NSLocationWhenInUseUsageDescription: "La aplicación necesita acceso a tu ubicación para registrar dónde escaneas los códigos QR."
-```
-
----
-
-## 🆔 Identificadores del Dispositivo
-
-La aplicación utiliza identificadores únicos reales del dispositivo:
-
-| Plataforma | Identificador   | Descripción                                                                      |
-| ---------- | --------------- | -------------------------------------------------------------------------------- |
-| Android    | `Android ID`    | ID único de 64 bits. Se resetea solo con factory reset.                          |
-| iOS        | `iOS Vendor ID` | ID único por desarrollador. Persiste mientras haya una app del vendor instalada. |
-
-> ⚠️ **Nota**: El IMEI no está disponible en aplicaciones modernas debido a restricciones de privacidad de Google (Android 10+) y Apple.
-
----
-
-## 🎨 Sistema de Diseño
-
-La aplicación utiliza un sistema de colores premium consistente:
-
-```typescript
-const Colors = {
-  primary: "#3b82f6", // Azul principal
-  secondary: "#10b981", // Verde secundario
-  accent: "#8b5cf6", // Violeta de acento
-  warning: "#f59e0b", // Amarillo de advertencia
-  danger: "#ef4444", // Rojo de error
-  background: "#f8fafc", // Fondo claro
-  text: "#0f172a", // Texto oscuro
-};
-```
-
----
-
-## 📝 Scripts Disponibles
-
-```bash
-# Iniciar servidor de desarrollo
-npm start
-
-# Iniciar con Android
-npm run android
-
-# Iniciar con iOS
-npm run ios
-
-# Iniciar versión web
-npm run web
-```
-
----
-
-## 🔧 Configuración Adicional
-
-### Cambiar el ID de la aplicación
-
-Editar `app.json`:
-
-```json
-{
-  "expo": {
-    "ios": {
-      "bundleIdentifier": "com.tuempresa.qrscannerpro"
-    },
-    "android": {
-      "package": "com.tuempresa.qrscannerpro"
-    }
-  }
-}
-```
-
-### Configurar EAS Project ID
-
-El proyecto ya tiene configurado el ID de EAS:
-
-```json
-{
-  "extra": {
-    "eas": {
-      "projectId": "ff1bb635-e946-4c30-8954-fc9485bc0648"
-    }
-  }
-}
-```
-
----
-
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
-
----
-
-## 👨‍💻 Autor
-
-**Matías F. González**
-
-- GitHub: [@matiasfgonzalez](https://github.com/matiasfgonzalez)
-
----
-
-## 🙏 Agradecimientos
-
-- [Expo](https://expo.dev/) - Plataforma de desarrollo
-- [React Native](https://reactnative.dev/) - Framework móvil
-- [OpenStreetMap](https://www.openstreetmap.org/) - Mapas gratuitos
-- [Leaflet](https://leafletjs.com/) - Librería de mapas
-
----
-
-<p align="center">
-  Hecho con ❤️ usando React Native y Expo
-</p>
+Licencia MIT.
