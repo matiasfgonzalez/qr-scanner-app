@@ -53,7 +53,8 @@ export default function ResultScreen({ route, navigation }: RootScreenProps<"Res
 
   useEffect(() => {
     if (!item) return;
-    getScans().then((all) => setTimesScanned(all.filter((s) => s.data === item.data).length || 1));
+    // Sólo los escaneos con ubicación forman parte de la ruta
+    getScans().then((all) => setTimesScanned(all.filter((s) => s.data === item.data && s.location).length));
   }, [item?.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const content = useMemo(() => (item ? parseContent(item.data, item.type) : null), [item?.data, item?.type]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -110,7 +110,7 @@ export async function resolveFinalUrl(href: string): Promise<string | null> {
   }
 }
 
-function mapsUrl(lat: number, lng: number, label?: string) {
+export function mapsUrl(lat: number, lng: number, label?: string) {
   const q = encodeURIComponent(label ?? `${lat},${lng}`);
   if (Platform.OS === "ios") return `http://maps.apple.com/?ll=${lat},${lng}&q=${q}`;
   return `geo:${lat},${lng}?q=${lat},${lng}(${q})`;
